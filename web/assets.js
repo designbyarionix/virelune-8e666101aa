@@ -846,7 +846,20 @@ export async function loadSprite(files,path){
   return {frames,additive:format===1};
 }
 
-export async function loadXpr(files,path,compact){
+const xprCache=new WeakMap();
+export function loadXpr(files,path,compact){
+  if(!xprCache.has(files))xprCache.set(files,new Map());
+  const cache=xprCache.get(files);
+  const key=JSON.stringify([path,compact?.frames,compact?.size]);
+  if(!cache.has(key)){
+    cache.set(key,decodeXpr(files,path,compact).catch(error=>{
+      cache.delete(key);
+      throw error;
+    }));
+  }
+  return cache.get(key);
+}
+async function decodeXpr(files,path,compact){
   const d=view(await files.bytes('sprites/'+path));
   const entries=[];
   for(let at=0;at+30<=d.byteLength&&d.getUint32(at,true)===0x04034b50;){

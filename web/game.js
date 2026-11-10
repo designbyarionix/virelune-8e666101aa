@@ -1,3 +1,4 @@
+import {Pools} from './pools.js';
 import * as T from 'three';
 import {defaults,parseRules,strike} from './rules.js';
 import {makeRadar} from './hud.js';
@@ -46,8 +47,8 @@ const ambient=new T.HemisphereLight(0xf4f8ff,0xb2aa96,1.65);scene.add(ambient);
 const sun=new T.DirectionalLight(0xffe3bd,1.45);
 sun.position.set(1200,1900,500);
 sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
-Object.assign(sun.shadow.camera,{left:-650,right:650,top:650,bottom:-650,near:50,far:3500});
-sun.shadow.bias=-.00025;sun.shadow.normalBias=1.3;sun.shadow.radius=2;
+Object.assign(sun.shadow.camera,{left:-110,right:110,top:110,bottom:-110,near:40,far:400});
+sun.shadow.bias=-.00025;sun.shadow.normalBias=1.3;sun.shadow.radius=1;
 sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun,sun.target);
 const skyColor=new T.Color(0x9ac1c2);
@@ -66,17 +67,21 @@ let files,world,actors,player,score=0,paused=true,busy=false,noticeUntil=0,now=0
 let botList=[],effects=[],shots=[],allies=[],models=new Map();
 let kawarimiLog=null,substitutionLogs=[];
 let rasenganChargeModel=null,pendingThrow=null;
-let focusSprites=[];
+let focusSprites=[],oriokeVisual=null;
 let routeBudget=2,baseSpritesLoaded=false;
 let lan=null;
-const opponents=()=>lan?[...botList,...lan.peers.values()]:botList;
+let opponentCache=botList;
+const opponents=()=>opponentCache;
+function refreshOpponents(){
+  opponentCache=lan?[...botList,...lan.peers.values()]:botList;
+}
 let cameraZoom=238,cameraDistance=238;
 let yaw=0,pitch=0,combo='',sealUntil=0,prepared=null,attackUntil=0,rush=null;
 const keys=new Set(),taps=new Map();
 const touch=new URLSearchParams(location.search).has('touch')||
   (globalThis.matchMedia?.('(pointer: coarse)').matches??false);
 const quality=$('graphics-quality');
-const qualityLimits={balanced:[1.15,1.75,1450000],detail:[1.25,2,2000000],light:[1,1.2,850000]};
+const qualityLimits={balanced:[1,1.4,1200000],detail:[1,1.6,1600000],light:[.75,1,800000]};
 const perfParams=new URLSearchParams(location.search);
 const fixedScale=perfParams.has('perf')?Number(perfParams.get('scale')):0;
 try{quality.value=localStorage.getItem('nnk-graphics')??'balanced';}catch{quality.value='balanced';}
@@ -88,9 +93,9 @@ function resolutionRange(){
     const fixed=Math.min(devicePixelRatio,fixedScale);
     return [fixed,fixed];
   }
-  const cap=Math.min(devicePixelRatio,touch?maximum:Math.max(1.5,maximum),
+  const cap=Math.min(devicePixelRatio,maximum,
     Math.sqrt(pixels/(innerWidth*innerHeight)));
-  const max=Math.max(Math.min(devicePixelRatio,1),cap);
+  const max=Math.max(Math.min(devicePixelRatio,minimum),cap);
   return [Math.min(max,minimum),max];
 }
 function setResolution(scale){
@@ -382,12 +387,12 @@ function endOrioke(){
   if(!orioke)return;
   const original=orioke.originalRoot;
   original.position.copy(player.root.position);original.quaternion.copy(player.root.quaternion);
-  actors.remove(player.root);actors.add(original);
+  player.root.visible=false;actors.add(original);
   if(orioke.cloud){
-    orioke.cloudMixer.stopAllAction();actors.remove(orioke.cloud);
-    orioke.cloudMaterials.forEach(material=>material.dispose());
+    orioke.cloudMixer.stopAllAction();orioke.cloud.visible=false;
   }
-  player.root=original;player.mixer=null;player.action=null;player.pose=null;orioke=null;
+  orioke.bodyMixer.stopAllAction();
+  player.root=original;player.mixer=orioke.originalMixer;player.action=orioke.originalAction;player.pose=null;orioke=null;
 }
 function toggleFocus(){
   focusMode=!focusMode;message(focusMode?'Фокус на чакра':'Фокусът е спрян');
@@ -400,12 +405,8 @@ function updateFocusEffect(){
   for(const [i,foot] of ['LFoot','RFoot'].entries()){
     const socket=player.root.sockets?.[foot];
     if(!socket){if(focusSprites[i])focusSprites[i].visible=false;continue;}
-    let sprite=focusSprites[i];
-    if(!sprite){
-      sprite=new T.Sprite(new T.SpriteMaterial({map:texture.frames[0],transparent:true,
-        blending:T.AdditiveBlending,depthWrite:false}));
-      focusSprites[i]=sprite;actors.add(sprite);
-    }
+    const sprite=focusSprites[i];
+    if(!sprite)continue;
     const scale=visualScale(player.root);
     sprite.visible=true;
     socket.getWorldPosition(sprite.position);sprite.position.y+=2*scale;
@@ -414,10 +415,14 @@ function updateFocusEffect(){
     sprite.scale.setScalar(23*scale);
   }
 }
+const soundTemplates=new Map();
 function sound(path,volume=.37){
   const url=files?.url('sound/'+path);
   if(!url)return;
-  const audio=new Audio(url);audio.volume=clamp(volume*sfxVolume,0,1);
+  let template=soundTemplates.get(url);
+  if(!template){template=new Audio(url);soundTemplates.set(url,template);}
+  const audio=template.cloneNode?.()??new Audio(url);
+  audio.volume=clamp(volume*sfxVolume,0,1);
   audio.play().catch(()=>{});
 }
 function prepare(skill){
@@ -514,6 +519,7 @@ function botSpawn(){
     return value(b)-value(a);
   })[0];
 }
+const scoreRows=[];
 function updateHUD(){
   $('hero').textContent=player.name??heroes[player.id].label;
   $('arena').textContent=names[world.name];
@@ -542,13 +548,18 @@ function updateHUD(){
   if(!board.hidden){
     const ordered=[player,...opponents()].sort((a,b)=>b.kills-a.kills);
     const list=board.querySelector('ol');
-    const rows=ordered.map(a=>{
+    while(scoreRows.length<Math.max(10,ordered.length)){
       const row=document.createElement('li');
+      scoreRows.push(row);list.append(row);
+    }
+    for(const [index,row] of scoreRows.entries()){
+      const a=ordered[index];
+      row.hidden=!a;
+      if(!a)continue;
       const prefix=mode==='teamplay'?(a.team===0?'[Konoha] ':'[Shinobi] '):'';
-      row.textContent=prefix+(a.name??heroes[a.id].label)+(a===player?' · ти':a.remote?' · LAN':' · бот')+' — '+a.kills+' / '+a.deaths;
-      return row;
-    });
-    list.replaceChildren(...rows);
+      const label=prefix+(a.name??heroes[a.id].label)+(a===player?' · ти':a.remote?' · LAN':' · бот')+' — '+a.kills+' / '+a.deaths;
+      if(row.textContent!==label)row.textContent=label;
+    }
   }
 }
 function spawn(entity,i){
@@ -569,7 +580,8 @@ async function addBots(n){
     bot.nameplate=document.createElement('span');bot.nameplate.className='bot-name';
     bot.nameplate.textContent=heroes[id].label+' · Бот '+(botList.length+1);
     bot.nameplate.hidden=true;$('bot-names').append(bot.nameplate);
-    actors.add(root);spawn(bot,botSpawn());botList.push(bot);
+    actors.add(root);spawn(bot,botSpawn());botList.push(bot);refreshOpponents();
+    if(id==='naruto')warmOwnerOrb(bot,'Rasengan');
   }
   updateHUD();
 }
@@ -580,15 +592,24 @@ const mobileRasenganTextures={
   rasenganHit:{frames:12,size:256},
   rasenShockwave:{frames:8,size:192}
 };
-const uploadedRasenganFrames=new WeakSet();
-function warmRasenganTextures(){
-  if(!renderer.initTexture)return;
-  for(const name of Object.keys(mobileRasenganTextures)){
-    for(const frame of sprites.get(name)?.frames??[]){
-      if(uploadedRasenganFrames.has(frame))continue;
-      renderer.initTexture(frame);uploadedRasenganFrames.add(frame);
-    }
+const uploadedTechniqueTextures=new WeakSet();
+let initTextureCount=0,warmedSpriteCount=0;
+function warmTechniqueTexture(texture){
+  if(!texture?.isTexture||!renderer.initTexture||uploadedTechniqueTextures.has(texture))return;
+  renderer.initTexture(texture);
+  initTextureCount++;
+  uploadedTechniqueTextures.add(texture);
+}
+function warmAllSprites(){
+  for(const sprite of sprites.values()){
+    for(const frame of sprite.frames)warmTechniqueTexture(frame);
   }
+  warmedSpriteCount=sprites.size;
+}
+function registerSprite(key,sprite){
+  if(sprites.has(key)||!sprite.frames.length)return;
+  sprites.set(key,sprite);
+  warmAllSprites();
 }
 async function loadJutsuEffects(id,withBots){
   const originalFx={
@@ -605,18 +626,20 @@ async function loadJutsuEffects(id,withBots){
     sakura:['heal','healKanji','boost','powerHit'],
     anbu:['fireball','fireTrail','fireStart','chidoriCore','chidoriBolts','chidoriHit']
   };
-  const keys=new Set(perHero[id]);
+  const keys=new Set(['rasenganHit',...perHero[id]]);
+  if(touch||withBots)for(const key of Object.keys(originalFx))keys.add(key);
   if(withBots)for(const key of ['rasenganHit','rasenCharge','rasenBase','fireball','fireTrail','fireStart'])keys.add(key);
-  await Promise.all([...keys].filter(key=>!sprites.has(key)||key==='rasenganHit'&&!sprites.get(key).additive).map(async key=>{
+  await Promise.all([...keys].filter(key=>!sprites.has(key)).map(async key=>{
         const name=originalFx[key];
         try{
           const effect=await loadXpr(files,(key==='rasenShockwave'?'general/':'jutsus/')+name+'.xpr',touch?mobileRasenganTextures[key]:null)
             .catch(error=>key==='fireball'?loadSprite(files,'jutsus/Gouk_Flame.spr'):Promise.reject(error));
-          effect.additive=/^Rasen_|^Chidori_|^chidori_main|^Shockwave$|^Chakra_Concentrate$|^Powerpunch_hit$|^Gouk_Flame$|^Hous_Flame$|^Flame_trail$|^Katon_Shoot$/i.test(name);
-          sprites.set(key,effect);
+          const additive=/^Rasen_|^Chidori_|^chidori_main|^Shockwave$|^Chakra_Concentrate$|^Powerpunch_hit$|^Gouk_Flame$|^Hous_Flame$|^Flame_trail$|^Katon_Shoot$/i.test(name);
+          registerSprite(key,{...effect,additive});
         }
         catch(e){console.warn('NNK XPR',name,e.message);}
       }));
+  warmAllSprites();
 }
 $('play').onclick=async()=>{
   if(!files||busy)return;
@@ -635,13 +658,15 @@ $('play').onclick=async()=>{
         rasenganHit:'jutsus/Rasengan_Hit.spr',chakraFocus:'jutsus/Chakra_Focus.spr',ripple:'fx/Ripples.spr',splash:'fx/Water_Splash.spr',
         smoke:'weapons/Smokebomb.spr',explosion:'general/Explosion.spr',sparks:'general/Sparks1.spr'};
       await Promise.all(Object.entries(assets).map(async ([name,path])=>{
+        if(sprites.has(name))return;
         try{
           const xpr={explosion:'general/Explosion.xpr',poof:'general/Poof.xpr'}[name];
           const sprite=xpr?await loadXpr(files,xpr).catch(()=>loadSprite(files,path)):await loadSprite(files,path);
-          if(sprite.frames.length&&!sprites.has(name))sprites.set(name,sprite);
+          registerSprite(name,sprite);
         }
         catch(e){console.warn('NNK sprite',path,e.message);}
       }));
+      warmAllSprites();
       baseSpritesLoaded=true;
     }
     if(!weaponTrailMap){
@@ -684,14 +709,12 @@ $('play').onclick=async()=>{
       position:next.spawns[0].position.toArray(),yaw:0,pose:'idle'}):null;
     const sky=name==='kyuubilair'?null:await loadSky(files,next.sky);
     clearRush();
+    disposeChargeHelper();
     endOrioke();
     if(world){scene.remove(world.group);disposeTree(world.group);}
     if(actors){
-      for(const e of effects)e.mesh.material.dispose();
-      for(const shot of shots){
-        if(!shot.model)shot.mesh.material.dispose();
-        shot.trail?.material.dispose();
-      }
+      visuals.dispose();
+      disposePersistentVisuals();
       scene.remove(actors);
     }
     if(scene.background?.isCubeTexture)scene.background.dispose();
@@ -709,7 +732,7 @@ $('play').onclick=async()=>{
     next.group.traverse(mesh=>{
       if(!mesh.isMesh)return;
       mesh.receiveShadow=true;
-      mesh.castShadow=mode!=='lan'&&mesh.visible&&!mesh.userData.bsp&&!next.waterMeshes.includes(mesh)&&!/ground|grnd|terrain|water|mount/i.test(mesh.name);
+      mesh.castShadow=false;
     });
     world={...next,name};scene.add(next.group);
     const mapAudio=(world.ambience??[]).filter(track=>!track.triggered)
@@ -732,18 +755,19 @@ $('play').onclick=async()=>{
       const match=lan;
       match.timer=setInterval(()=>pollLan(match),25);
     }
+    refreshOpponents();
     if(!lan)await addBots(Number($('bots').value));
     if(touch&&(player.id==='naruto'||botList.some(bot=>bot.id==='naruto'))){
-      warmRasenganTextures();
+      warmAllSprites();
       for(const actor of [player,...botList])actor.root.animation('ref_rasengan_knockback_hit');
       const naruto=player.id==='naruto'?player:botList.find(bot=>bot.id==='naruto');
       for(const pose of ['charge','charge_bunshin','ready','thrust','end'])naruto.root.animation('ref_rasengan_'+pose);
-      if(renderer.compile){
-        const orb=makeTechniqueOrb('Rasengan');
-        orb.position.copy(player.pos);
-        try{renderer.compile(scene,camera);}finally{removeTechniqueOrb(orb);}
-      }
     }
+    warmAllSprites();
+    renderer.compile?.(scene,camera);
+    if(id==='naruto'){warmOwnerOrb(player,'Rasengan');prepareChargeHelper();}
+    if(id==='sasuke'||id==='kakashi'||id==='anbu')warmOwnerOrb(player,'Chidori');
+    buildVisualPools();
     $('addbots').hidden=!!lan;
     $('hud').hidden=false;$('training').hidden=false;
     battleStarts=mode==='lan'?0:now+.8;
@@ -976,6 +1000,7 @@ function animate(actor,name,dt){
   }
   actor.mixer.update(dt);
 }
+const wallBasis=new T.Matrix4(),wallTangent=new T.Vector3();
 function face(actor,direction){
   setActorScale(actor.root);
   const nativeFeet=world.traceSolid?actor.root.userData.nativeFeet:undefined;
@@ -988,8 +1013,8 @@ function face(actor,direction){
   if(actor.wall){
     const normal=actor.wall.normal,up=actor.wall.heading??new T.Vector3(0,1,0);
     if(up.lengthSq()<.01)up.set(0,1,0);
-    const tangent=new T.Vector3().crossVectors(up,normal);
-    const basis=new T.Matrix4().makeBasis(up,normal,tangent);
+    const tangent=wallTangent.crossVectors(up,normal);
+    const basis=wallBasis.makeBasis(up,normal,tangent);
     actor.root.quaternion.setFromRotationMatrix(basis);
     actor.root.position.addScaledVector(normal,-actor.wall.distance+3);
   }else{
@@ -997,15 +1022,154 @@ function face(actor,direction){
     actor.root.rotation.set(0,Math.atan2(-direction.z,direction.x),0);
   }
 }
+const shotFrame=[],allyFrame=[];
+function snapshotVisuals(source,target){
+  target.length=source.length;
+  for(let i=0;i<source.length;i++)target[i]=source[i];
+}
+const visuals=new Pools({maxLive:40,maxPerFrame:8,limits:{clone:4,shot:12,wave:6}});
+const waveNames=new Set(['rasenShockwave','ripple']);
+const effectKey=name=>'effect:'+name;
+function hidePooled(item,list){
+  item.mesh.visible=false;
+  if(item.trail)item.trail.visible=false;
+  item.mixer?.stopAllAction();
+  item.action=null;
+  const index=list.indexOf(item);
+  if(index>=0)list.splice(index,1);
+}
+function attachPooled(item){
+  item.mesh.visible=false;
+  actors.add(item.mesh);
+  if(item.trail){item.trail.visible=false;actors.add(item.trail);}
+  return item;
+}
+function disposePooled(item){
+  item.mesh.traverse(node=>{if(node.isSkinnedMesh)node.skeleton.dispose();});
+  for(const material of item.ownedMaterials??[])material.dispose();
+  item.mesh.removeFromParent();
+  item.trail?.removeFromParent();
+}
+function registerEffect(name,sprite){
+  const key=effectKey(name),ripple=name==='ripple';
+  visuals.register(key,{
+    size:waveNames.has(name)?6:24,group:waveNames.has(name)?'wave':undefined,
+    create:()=>{
+      const material=sprite&&!ripple?new T.SpriteMaterial({map:sprite.frames[0],transparent:true,depthWrite:false}):
+        new T.MeshBasicMaterial({map:sprite?.frames[0]??null,transparent:true,depthWrite:!ripple});
+      const mesh=sprite&&!ripple?new T.Sprite(material):new T.Mesh(ripple?rippleGeo:fxGeo,material);
+      material.blending=sprite?.additive||ripple||name==='chakraGlow'||name==='chakraFocus'?T.AdditiveBlending:T.NormalBlending;
+      if(ripple)mesh.rotation.x=-Math.PI/2;
+      return attachPooled({key,mesh,sprite,ripple,ownedMaterials:[material]});
+    },
+    reset:item=>hidePooled(item,effects),dispose:disposePooled,
+  });
+}
+function releaseVisual(effect){visuals.release(effect.key,effect);}
 function visual(pos,color,size=16,ttl=.5,name,spriteOnly=false){
   const sprite=sprites.get(name)??(name==='chakraGlow'?sprites.get('chakraFocus'):null);
   if(!sprite&&spriteOnly)return;
-  const mesh=sprite?new T.Sprite(new T.SpriteMaterial({map:sprite.frames[0],transparent:true,depthWrite:false,
-    color:name==='chakraGlow'?color:0xffffff,
-    blending:sprite.additive||name==='chakraGlow'||name==='chakraFocus'?T.AdditiveBlending:T.NormalBlending})):
-    new T.Mesh(fxGeo,new T.MeshBasicMaterial({color,transparent:true,opacity:.87}));
-  mesh.position.copy(pos);mesh.scale.setScalar(sprite?size*2.6:size);actors.add(mesh);
-  effects.push({mesh,ttl,left:ttl,size,sprite});
+  const item=visuals.acquire(effectKey(sprite?name:'solid'));
+  if(!item)return;
+  const {mesh}=item;
+  mesh.material.color.setHex(!sprite||name==='chakraGlow'?color:0xffffff);
+  mesh.material.opacity=sprite?1:.87;
+  if(sprite)mesh.material.map=sprite.frames[0];
+  mesh.position.copy(pos);mesh.scale.setScalar(item.ripple?25:sprite?size*2.6:size);
+  mesh.visible=true;
+  item.ttl=item.left=ttl;item.size=size;
+  effects.push(item);
+}
+function registerActorVisual(key,original,size,group,list){
+  if(!original)return;
+  visuals.register(key,{
+    size,group,
+    create:()=>{
+      const mesh=cloneSkeleton(original);
+      mesh.animation=original.animation;mesh.animations=original.animations;
+      return attachPooled({key,mesh,root:mesh,mixer:new T.AnimationMixer(mesh),pos:new T.Vector3(),route:[]});
+    },
+    reset:item=>hidePooled(item,list()),dispose:disposePooled,
+  });
+}
+const trailMaterials=new Map();
+function trailMaterialFor(grenade){
+  if(!trailMaterials.has(grenade)){
+    trailMaterials.set(grenade,new T.MeshBasicMaterial({
+      map:weaponTrailMap,color:grenade?0xffcd98:0xcbeaff,side:T.DoubleSide,
+      transparent:true,depthWrite:false,blending:T.AdditiveBlending,opacity:.8
+    }));
+  }
+  return trailMaterials.get(grenade);
+}
+function preparePersistentVisuals(){
+  const texture=sprites.get('chakraFocus');
+  if(texture){
+    const material=new T.SpriteMaterial({map:texture.frames[0],transparent:true,
+      blending:T.AdditiveBlending,depthWrite:false});
+    focusSprites=[new T.Sprite(material),new T.Sprite(material)];
+    actors.add(...focusSprites);
+  }
+  if(player.id!=='naruto'||!oriokeModel)return;
+  const body=cloneSkeleton(oriokeModel);
+  body.animation=oriokeModel.animation;body.animations=oriokeModel.animations;
+  const cloud=oriokeCloud&&cloneSkeleton(oriokeCloud);
+  const cloudMaterials=[];
+  if(cloud){
+    cloud.traverse(mesh=>{
+      if(mesh.isSkinnedMesh){mesh.material=mesh.material.clone();cloudMaterials.push(mesh.material);}
+    });
+    actors.add(cloud);
+  }
+  actors.add(body);
+  oriokeVisual={body,bodyMixer:new T.AnimationMixer(body),cloud,
+    cloudMixer:cloud&&new T.AnimationMixer(cloud),cloudMaterials,hit:new Set()};
+}
+function disposePersistentVisuals(){
+  focusSprites[0]?.material.dispose();
+  for(const material of trailMaterials.values())material.dispose();
+  trailMaterials.clear();
+  if(!oriokeVisual)return;
+  for(const mesh of [oriokeVisual.body,oriokeVisual.cloud]){
+    mesh?.traverse(node=>{if(node.isSkinnedMesh)node.skeleton.dispose();});
+  }
+  for(const material of oriokeVisual.cloudMaterials)material.dispose();
+  oriokeVisual=null;
+}
+function registerClonePool(actor){
+  actor.clonePoolKey??=Symbol('clone');
+  registerActorVisual(actor.clonePoolKey,actor.root,3,'clone',()=>allies);
+}
+function buildVisualPools(){
+  registerEffect('solid');
+  for(const [name,sprite] of sprites)registerEffect(name,sprite);
+  if(sprites.has('chakraFocus'))registerEffect('chakraGlow',sprites.get('chakraFocus'));
+  for(const actor of [player,...botList])registerClonePool(actor);
+  registerActorVisual('summon',pakkun??player.root,1,'clone',()=>allies);
+  registerActorVisual('log',kawarimiLog,8,undefined,()=>substitutionLogs);
+  for(const kind of ['bolt','fire','volley','rasenshuriken',...weapons.map(weapon=>weapon.id)])registerShot(kind);
+  preparePersistentVisuals();
+  const meshes=[...focusSprites];
+  if(oriokeVisual){meshes.push(oriokeVisual.body);if(oriokeVisual.cloud)meshes.push(oriokeVisual.cloud);}
+  for(const pool of visuals.pools.values())for(const item of pool.items){
+    for(const mesh of [item.mesh,item.trail]){
+      if(!mesh)continue;
+      meshes.push(mesh);
+    }
+  }
+  for(const mesh of meshes){
+    mesh.visible=true;
+    mesh.traverse(node=>{
+      const materials=Array.isArray(node.material)?node.material:[node.material];
+      for(const material of materials)warmTechniqueTexture(material?.map);
+      if(!node.isSkinnedMesh)return;
+      if(!node.skeleton.boneTexture)node.skeleton.computeBoneTexture();
+      warmTechniqueTexture(node.skeleton.boneTexture);
+    });
+  }
+  warmTechniqueTexture(weaponTrailMap);
+  try{renderer.compile?.(scene,camera);}
+  finally{for(const mesh of meshes)mesh.visible=false;}
 }
 function damage(bot,n,source=player){
   if(bot.dead)return;
@@ -1029,21 +1193,17 @@ function damage(bot,n,source=player){
   if(bot.hp<=0){playPose(bot,bot.ground?'die_simple':'die_fall');bot.dead=now+3.2;bot.deaths++;source.kills++;if(source===player){score++;message('Победен бот');}}
 }
 function dropSubstitutionLog(actor){
-  if(!kawarimiLog)return;
-  const root=cloneSkeleton(kawarimiLog);
-  root.animation=kawarimiLog.animation;
+  const log=visuals.acquire('log');
+  if(!log)return;
+  const {root}=log;
+  root.visible=true;
   root.scale.setScalar(world.traceSolid?1:2);
   root.position.copy(actor.pos);
   root.position.y=world.floorY(actor.pos)??actor.root.position.y;
   root.rotation.y=actor.root.rotation.y;
-  actors.add(root);
-  const log={root,until:now+10};
+  log.until=now+10;
   playPose(log,'drop',10);
   substitutionLogs.push(log);
-  if(substitutionLogs.length>8){
-    const oldest=substitutionLogs.shift();
-    oldest.mixer?.stopAllAction();actors.remove(oldest.root);
-  }
   sound('jutsu/Kawarimi_Drop.wav',.3);
 }
 function aim(){
@@ -1093,62 +1253,85 @@ function strikeTarget(strongAttack){
   if(chain===5)attackUntil=now+rules.sv_final_swing_delay;
   if(chain>1)message(chain+' удара');
 }
-function projectile(dir,color,damageAmount,owner=player,speed=660,radius=0,kind='bolt'){
+function registerShot(kind){
   const prototype=weaponModels.get(kind);
   const flame=sprites.get(kind==='fire'?'fireball':kind==='volley'?'volley':'');
-  const mesh=prototype?new T.Group():flame?
-    new T.Sprite(new T.SpriteMaterial({map:flame.frames[0],transparent:true,depthWrite:false,blending:T.AdditiveBlending})):
-    new T.Mesh(fxGeo,new T.MeshBasicMaterial({color}));
   const rasenshuriken=kind==='rasenshuriken';
   const thrown=rasenshuriken||weapons.some(weapon=>weapon.id===kind);
-  let mixer;
-  if(prototype){
-    const model=rasenshuriken?cloneSkeleton(prototype):prototype.clone(true);
-    mesh.add(model);
-    if(rasenshuriken&&prototype.animations.length){
-      mixer=new T.AnimationMixer(model);
-      mixer.clipAction(prototype.animations[0]).play();
-    }
-    const visibleSize=rasenshuriken?48:kind==='shuriken'?17:kind==='kunai'||kind==='tagkunai'?19:12;
-    mesh.scale.setScalar(visibleSize/prototype.userData.weaponSize);
-  }
-  else mesh.scale.setScalar(flame?(kind==='fire'?55:32):thrown?7:11);
   const grenade=kind==='smoke'||kind==='tag';
-  const velocity=dir.clone().multiplyScalar(speed);
-  if(grenade)velocity.y+=145;
+  const key='shot:'+kind;
+  visuals.register(key,{
+    size:12,group:'shot',
+    create:()=>{
+      const ownedMaterials=[];
+      const material=prototype?null:flame?
+        new T.SpriteMaterial({map:flame.frames[0],transparent:true,depthWrite:false,blending:T.AdditiveBlending}):
+        new T.MeshBasicMaterial();
+      const mesh=prototype?new T.Group():flame?new T.Sprite(material):new T.Mesh(fxGeo,material);
+      if(material)ownedMaterials.push(material);
+      let mixer,action;
+      if(prototype){
+        const model=rasenshuriken?cloneSkeleton(prototype):prototype.clone(true);
+        mesh.add(model);
+        if(rasenshuriken&&prototype.animations.length){
+          mixer=new T.AnimationMixer(model);
+          action=mixer.clipAction(prototype.animations[0]);
+        }
+        const size=rasenshuriken?48:kind==='shuriken'?17:kind==='kunai'||kind==='tagkunai'?19:12;
+        mesh.scale.setScalar(size/prototype.userData.weaponSize);
+      }else mesh.scale.setScalar(flame?(kind==='fire'?55:32):thrown?7:11);
+      let trail;
+      if(thrown){
+        trail=new T.Mesh(rippleGeo,trailMaterialFor(grenade));trail.userData.weaponTrail=true;
+      }
+      return attachPooled({key,mesh,velocity:new T.Vector3(),kind,model:!!prototype,grenade,mixer,
+        shotAction:action,flame,thrown,rasenshuriken,trail,ownedMaterials});
+    },
+    reset:item=>hidePooled(item,shots),dispose:disposePooled,
+  });
+}
+const launchPoint=new T.Vector3(),projectileAxis=new T.Vector3(1,0,0);
+function projectile(dir,color,damageAmount,owner=player,speed=660,radius=0,kind='bolt'){
+  const shot=visuals.acquire('shot:'+kind);
+  if(!shot)return;
+  const {mesh}=shot;
+  mesh.visible=true;
+  mesh.quaternion.identity();
+  if(!shot.model)mesh.material.color.setHex(shot.flame?0xffffff:color);
+  if(shot.flame)mesh.material.map=shot.flame.frames[0];
+  shot.shotAction?.reset().play();
+  shot.velocity.copy(dir).multiplyScalar(speed);
+  if(shot.grenade)shot.velocity.y+=145;
   const actorScale=visualScale(owner.root);
   mesh.position.copy(owner.pos);
-  const hand=thrown&&owner.root.sockets?.RHand;
-  const launch=hand?hand.getWorldPosition(new T.Vector3()).addScaledVector(dir,13*actorScale):
-    owner.pos.clone().addScaledVector(dir,28*actorScale).add(new T.Vector3(0,10*actorScale,0));
-  if(visibleBetween(owner.pos,launch))mesh.position.copy(launch);
-  if(prototype&&kind!=='shuriken'&&!rasenshuriken)mesh.quaternion.setFromUnitVectors(new T.Vector3(1,0,0),dir);
-  const shot={mesh,velocity,ttl:grenade?1.45:1.7,damage:damageAmount,owner,radius,kind,
-    model:!!prototype,grenade,stuck:false,mixer,flame};
-  if(thrown){
-    shot.trail=new T.Mesh(rippleGeo,new T.MeshBasicMaterial({
-      map:weaponTrailMap,color:grenade?0xffcd98:0xcbeaff,side:T.DoubleSide,
-      transparent:true,depthWrite:false,blending:T.AdditiveBlending,opacity:.8
-    }));
-    shot.trail.userData.weaponTrail=true;
-    actors.add(shot.trail);updateWeaponTrail(shot);
+  const hand=shot.thrown&&owner.root.sockets?.RHand;
+  if(hand)hand.getWorldPosition(launchPoint).addScaledVector(dir,13*actorScale);
+  else{
+    launchPoint.copy(owner.pos).addScaledVector(dir,28*actorScale);
+    launchPoint.y+=10*actorScale;
   }
-  shots.push(shot);actors.add(mesh);
+  if(visibleBetween(owner.pos,launchPoint))mesh.position.copy(launchPoint);
+  if(shot.model&&kind!=='shuriken'&&!shot.rasenshuriken)mesh.quaternion.setFromUnitVectors(projectileAxis,dir);
+  shot.ttl=shot.grenade?1.45:1.7;shot.damage=damageAmount;shot.owner=owner;shot.radius=radius;shot.stuck=false;shot.fxAt=0;
+  updateWeaponTrail(shot);
+  shots.push(shot);
 }
+const trailAxis=new T.Vector3(),trailView=new T.Vector3(),trailAcross=new T.Vector3(),trailNormal=new T.Vector3();
+const trailUp=new T.Vector3(0,1,0),trailBasis=new T.Matrix4();
 function updateWeaponTrail(shot){
   const trail=shot.trail;
   if(!trail)return;
   trail.visible=shot.ttl>0&&!shot.stuck&&shot.velocity.lengthSq()>25;
   if(!trail.visible)return;
   const length=clamp(shot.velocity.length()*.07,17,78);
-  const axis=shot.velocity.clone().normalize();
+  const axis=trailAxis.copy(shot.velocity).normalize();
   trail.position.copy(shot.mesh.position).addScaledVector(axis,-length*.56);
-  const view=camera.position.clone().sub(trail.position).normalize();
-  const across=new T.Vector3().crossVectors(view,axis);
-  if(across.lengthSq()<.001)across.crossVectors(new T.Vector3(0,1,0),axis);
+  const view=trailView.copy(camera.position).sub(trail.position).normalize();
+  const across=trailAcross.crossVectors(view,axis);
+  if(across.lengthSq()<.001)across.crossVectors(trailUp,axis);
   if(across.lengthSq()<.001)across.set(0,0,1);
   across.normalize();
-  trail.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(axis,across,new T.Vector3().crossVectors(axis,across)));
+  trail.quaternion.setFromRotationMatrix(trailBasis.makeBasis(axis,across,trailNormal.crossVectors(axis,across)));
   trail.scale.set(length,shot.grenade?5:7,1);
 }
 function quickFire(){
@@ -1182,16 +1365,91 @@ function releaseThrow(weapon){
 }
 function clearRush(){
   rush=null;
-  if(chargeClone){chargeClone.mixer?.stopAllAction();actors?.remove(chargeClone.root);chargeClone=null;}
+  releaseChargeHelper();
   if(techniqueOrb){
     removeTechniqueOrb(techniqueOrb);techniqueOrb=null;
   }
 }
-function removeTechniqueOrb(orb){
-  orb.effectMixer?.stopAllAction();orb.chargeMixer?.stopAllAction();
-  actors?.remove(orb);orb.userData.aura?.material.dispose();orb.material?.dispose();
+let chargeHelper=null;
+function prepareChargeHelper(){
+  if(chargeHelper)return chargeHelper;
+  const root=cloneSkeleton(player.root);
+  root.animation=player.root.animation;
+  root.animations=player.root.animations;
+  root.visible=false;
+  actors.add(root);
+  chargeHelper={root,animDt:0,mixer:new T.AnimationMixer(root)};
+  root.traverse(node=>{
+    if(!node.isSkinnedMesh)return;
+    if(!node.skeleton.boneTexture)node.skeleton.computeBoneTexture();
+    warmTechniqueTexture(node.skeleton.boneTexture);
+  });
+  return chargeHelper;
 }
-function makeTechniqueOrb(label){
+function releaseChargeHelper(){
+  if(!chargeClone)return;
+  chargeClone.mixer.stopAllAction();
+  chargeClone.action=null;
+  chargeClone.root.visible=false;
+  chargeClone=null;
+}
+function disposeChargeHelper(){
+  if(!chargeHelper)return;
+  chargeHelper.root.traverse(node=>{if(node.isSkinnedMesh)node.skeleton.dispose();});
+  chargeHelper.root.removeFromParent();
+  chargeHelper=null;
+}
+function removeTechniqueOrb(orb){visuals.release(orb.userData.poolOwner,orb);}
+function warmOwnerOrb(owner,label){
+  visuals.register(owner,{
+    size:2,group:'orb',
+    create:()=>{
+      const orb=createTechniqueOrb(label,owner===player);
+      orb.userData.poolOwner=owner;
+      orb.visible=false;
+      return orb;
+    },
+    reset:orb=>{
+      orb.effectMixer?.stopAllAction();
+      orb.chargeMixer?.stopAllAction();
+      orb.visible=false;
+      if(techniqueOrb===orb)techniqueOrb=null;
+      if(owner.rasengan?.orb===orb)owner.rasengan=null;
+    },
+    dispose:orb=>{
+      orb.traverse(node=>{if(node.isSkinnedMesh)node.skeleton.dispose();});
+      orb.userData.aura?.material.dispose();
+      orb.material?.dispose();
+      orb.removeFromParent();
+    },
+  });
+  for(const orb of visuals.pools.get(owner).items){
+    orb.position.copy(owner.pos);
+    orb.visible=true;
+    orb.traverse(node=>{
+      const materials=Array.isArray(node.material)?node.material:[node.material];
+      for(const material of materials)warmTechniqueTexture(material?.map);
+      if(node.isSkinnedMesh){
+        if(!node.skeleton.boneTexture)node.skeleton.computeBoneTexture();
+        warmTechniqueTexture(node.skeleton.boneTexture);
+      }
+    });
+  }
+  try{renderer.compile?.(scene,camera);}
+  finally{for(const orb of visuals.pools.get(owner).items)orb.visible=false;}
+}
+function makeTechniqueOrb(owner){
+  const orb=visuals.acquire(owner);
+  if(!orb)return null;
+  orb.visible=true;
+  if(orb.effectMixer)orb.effectMixer.clipAction(rasenganModel.animations[0]).reset().play();
+  if(orb.chargeMixer){
+    orb.chargeShell.visible=true;
+    for(const clip of rasenganChargeModel.animations)orb.chargeMixer.clipAction(clip).reset().play();
+  }
+  return orb;
+}
+function createTechniqueOrb(label,withChargeShell){
   const rasengan=label==='Rasengan';
   const orb=rasengan?(rasenganModel?cloneSkeleton(rasenganModel):new T.Group()):new T.Mesh(fxGeo,new T.MeshBasicMaterial({
     color:label==='Rasengan'?0x9ee5ff:0xd8f4ff,transparent:true,
@@ -1199,17 +1457,15 @@ function makeTechniqueOrb(label){
   }));
   if(label==='Rasengan'&&rasenganModel?.animations.length){
     orb.effectMixer=new T.AnimationMixer(orb);
-    orb.effectMixer.clipAction(rasenganModel.animations[0]).play();
   }
   if(label==='Rasengan'){
     const core=new T.Mesh(rasenganCoreGeometry,rasenganCoreMaterial);
     core.renderOrder=2;orb.add(core);
   }
-  if(label==='Rasengan'&&rasenganChargeModel&&charged){
+  if(label==='Rasengan'&&rasenganChargeModel&&withChargeShell){
     const shell=cloneSkeleton(rasenganChargeModel);
     shell.scale.setScalar(1.45);orb.add(shell);orb.chargeShell=shell;
     orb.chargeMixer=new T.AnimationMixer(shell);
-    for(const clip of rasenganChargeModel.animations)orb.chargeMixer.clipAction(clip).play();
   }
   const energy=label==='Rasengan'?sprites.get('rasenBase'):null;
   if(energy){
@@ -1225,9 +1481,12 @@ function positionTechniqueOrb(orb,actor,size,direction,dt){
   rasenganCoreMaterial.uniforms.time.value=now;
   const scale=visualScale(actor.root);
   const hand=actor.root.sockets?.RHand;
-  if(hand)hand.getWorldPosition(orb.position);
+  if(hand&&touch){
+    actor.root.updateMatrixWorld();
+    orb.position.setFromMatrixPosition(hand.matrixWorld);
+  }else if(hand)hand.getWorldPosition(orb.position);
   else orb.position.copy(actor.pos).addScaledVector(direction,24*scale);
-  if(charged&&actor===player&&actor.root.sockets?.LHand){
+  if(!touch&&charged&&actor===player&&actor.root.sockets?.LHand){
     const left=actor.root.sockets.LHand.getWorldPosition(new T.Vector3());
     if(left.distanceToSquared(orb.position)<(32*scale)**2)orb.position.lerp(left,.32);
   }
@@ -1237,7 +1496,7 @@ function positionTechniqueOrb(orb,actor,size,direction,dt){
   if(aura&&energy)aura.material.map=energy.frames[Math.floor(now*22)%energy.frames.length];
   if(orb.effectMixer)orb.effectMixer.update(dt);
   else orb.rotation.set(0,now*12,now*8);
-  if(orb.chargeShell){orb.chargeShell.visible=Boolean(charged);if(charged)orb.chargeMixer.update(dt);}
+  if(orb.chargeShell){orb.chargeShell.visible=Boolean(charged&&actor===player);if(orb.chargeShell.visible)orb.chargeMixer.update(dt);}
   orb.scale.setScalar(size*scale*(1+.025*Math.sin(now*44)));
 }
 function updateTechnique(dt){
@@ -1249,9 +1508,9 @@ function updateTechnique(dt){
     }
     if(rasengan){
       if(!chargeClone){
-        const root=cloneSkeleton(player.root);
-        root.animation=player.root.animation;root.animations=player.root.animations;
-        actors.add(root);chargeClone={root,animDt:0};
+        chargeClone=prepareChargeHelper();
+        chargeClone.animDt=0;
+        chargeClone.root.visible=true;
         playPose(chargeClone,'ref_rasengan_charge_bunshin');
         visual(player.pos.clone().addScaledVector(right,20*visualScale(player.root)),0xc7d5db,13,.3,'poof');
       }
@@ -1266,29 +1525,31 @@ function updateTechnique(dt){
         chargeClone.animDt=0;
       }
     }else if(chargeClone){
-      actors.remove(chargeClone.root);chargeClone=null;
+      releaseChargeHelper();
     }
     if(elapsed>=1.6||charged.releaseAt!==undefined&&now>=charged.releaseAt)releaseCharge(true);
   }
-  if(!charged&&chargeClone){actors.remove(chargeClone.root);chargeClone.mixer?.stopAllAction();chargeClone=null;}
+  if(!charged)releaseChargeHelper();
   if(!rush&&!charged){clearRush();return;}
   const label=rush?.label??charged.skill[0];
-  if(!techniqueOrb)techniqueOrb=makeTechniqueOrb(label);
+  if(!techniqueOrb)techniqueOrb=makeTechniqueOrb(player);
+  const orb=techniqueOrb;
+  if(!orb)return;
   const direction=rush?.direction??forward;
-  positionTechniqueOrb(techniqueOrb,player,rush?24:10+Math.min(16,(now-charged.start)*23),direction,dt);
+  positionTechniqueOrb(orb,player,rush?24:10+Math.min(16,(now-charged.start)*23),direction,dt);
   if(label!=='Rasengan'&&now>=(player.jutsuFxAt??0)){
     player.jutsuFxAt=now+.09;
-    visual(techniqueOrb.position,0xc3eaff,rush?20:15,.24,'chidoriBolts');
-    if(sprites.has('chidoriCore'))visual(techniqueOrb.position,0xb7edff,12,.16,'chidoriCore');
+    visual(orb.position,0xc3eaff,rush?20:15,.24,'chidoriBolts');
+    if(sprites.has('chidoriCore'))visual(orb.position,0xb7edff,12,.16,'chidoriCore');
   }
   if(!rush)return;
   for(const bot of opponents()){
     if(bot.dead||!enemies(player,bot)||rush.hit.has(bot)||
-       techniqueOrb.position.distanceToSquared(bot.pos)>55**2||!visibleBetween(player.pos,bot.pos))continue;
+       orb.position.distanceToSquared(bot.pos)>55**2||!visibleBetween(player.pos,bot.pos))continue;
     rush.hit.add(bot);damage(bot,rush.damage);
     if(label==='Rasengan'){
       sound('jutsu/Rasengan_Hit.wav');
-      if(sprites.has('rasenShockwave'))visual(techniqueOrb.position,0xc0edff,24*visualScale(player.root),.38,'rasenShockwave');
+      if(sprites.has('rasenShockwave'))visual(orb.position,0xc0edff,24*visualScale(player.root),.38,'rasenShockwave');
       if(!bot.dead)playPose(bot,'ref_rasengan_knockback_hit',.85);
       bot.impulse.addScaledVector(direction,220);
     }else{
@@ -1338,6 +1599,7 @@ function attack(secondary){
   strikeTarget(false);
 }
 function cast(skill,charge=0,secondary=false){
+  if(perf)beginPerfCast(true);
   const [label,,type]=skill;
   const costs={rasenshuriken:3600,fire:rules.sv_katon_gouk_chakra_consumption,volley:rules.sv_katon_housenka_chakra_consumption,
     heal:rules.sv_healing_chakra_consumption,stun:rules.sv_orioke_chakra_consumption,
@@ -1380,23 +1642,22 @@ function cast(skill,charge=0,secondary=false){
   }else if(type==='stun'){
     if(orioke)endOrioke();
     const originalRoot=player.root;
-    const transformed=cloneSkeleton(oriokeModel);
-    transformed.animation=oriokeModel.animation;transformed.animations=oriokeModel.animations;
-    transformed.position.copy(originalRoot.position);transformed.quaternion.copy(originalRoot.quaternion);
-    actors.remove(originalRoot);actors.add(transformed);
-    player.root=transformed;player.mixer=null;player.action=null;player.pose=null;
-    const cloud=oriokeCloud&&cloneSkeleton(oriokeCloud);
-    const cloudMixer=cloud&&new T.AnimationMixer(cloud),cloudMaterials=[];
+    if(!oriokeVisual)return;
+    const {body,bodyMixer,cloud,cloudMixer,cloudMaterials,hit}=oriokeVisual;
     const duration=rules.sv_orioke_change_time;
+    body.position.copy(originalRoot.position);body.quaternion.copy(originalRoot.quaternion);
+    oriokeVisual.originalMixer=player.mixer;oriokeVisual.originalAction=player.action;
+    actors.remove(originalRoot);body.visible=true;
+    player.root=body;player.mixer=bodyMixer;player.action=null;player.pose=null;
     if(cloud){
       cloud.scale.setScalar(world.traceSolid?1:2);
-      cloud.traverse(mesh=>{
-        if(mesh.isSkinnedMesh){mesh.material=mesh.material.clone();cloudMaterials.push(mesh.material);}
-      });
-      cloudMixer.clipAction(oriokeCloud.animation('idle')).setLoop(T.LoopOnce,1).setDuration(duration).play();
-      actors.add(cloud);
+      for(const material of cloudMaterials)material.opacity=0;
+      cloudMixer.clipAction(oriokeCloud.animation('idle')).reset().setLoop(T.LoopOnce,1).setDuration(duration).play();
+      cloud.visible=true;
     }
-    orioke={start:now,end:now+duration,originalRoot,cloud,cloudMixer,cloudMaterials,hit:new Set()};
+    hit.clear();
+    orioke=oriokeVisual;
+    orioke.start=now;orioke.end=now+duration;orioke.originalRoot=originalRoot;
     playPose(player,'ref_control_orioke',duration,true);
     visual(player.pos,0xf4e6df,26,.55,'poof');
   }else if(type==='boost'){
@@ -1408,24 +1669,23 @@ function cast(skill,charge=0,secondary=false){
       visual(player.pos.clone().addScaledVector(dir,70),0xffb5a5,38,.7,'powerHit');
     }
   }else{
-    const summon=type==='summon',original=summon&&pakkun?pakkun:player.root;
+    const summon=type==='summon';
     if(summon)visual(player.root.position,0x333333,35,.65,'summon');
     const offsets=summon||label==='Bunshin'?[46]:[-46,46];
-    const previous=allies.findIndex(ally=>ally.kind===type);
-    if(previous!==-1){
-      allies=allies.filter(ally=>{
-        if(ally.kind!==type)return true;
-        actors.remove(ally.mesh);ally.mixer?.stopAllAction();return false;
-      });
-    }
     for(const offset of offsets){
-      const pos=player.pos.clone().addScaledVector(right,offset);
+      const ally=visuals.acquire(summon?'summon':player.clonePoolKey);
+      if(!ally)break;
+      const {pos,mesh}=ally;
+      pos.copy(player.pos).addScaledVector(right,offset);
       if(world.solid(pos))pos.copy(player.pos).addScaledVector(forward,38);
       if(world.solid(pos))pos.copy(player.pos);
-      const mesh=cloneSkeleton(original);mesh.animation=original.animation;mesh.animations=original.animations;
-      const ally={mesh,root:mesh,pos,kind:type,team:player.team,hp:summon?30:10,dy:0,feetOffset:player.feetOffset,ttl:summon?rules.sv_pakkun_time_pakkunlives:10,
-        next:now+.15,damage:summon?rules.sv_pakkun_dmg:rules.sv_kagebunshin_dmg,route:[],replan:0,scanAt:now+(offset>0?.08:0)};
-      actors.add(mesh);allies.push(ally);face(ally,forward);
+      ally.kind=type;ally.team=player.team;ally.hp=summon?30:10;ally.dy=0;ally.dead=false;
+      ally.feetOffset=player.feetOffset;ally.ttl=summon?rules.sv_pakkun_time_pakkunlives:10;
+      ally.next=now+.15;ally.damage=summon?rules.sv_pakkun_dmg:rules.sv_kagebunshin_dmg;
+      ally.route.length=0;ally.replan=0;ally.scanAt=now+(offset>0?.08:0);
+      ally.target=ally.direct=ally.routeSearch=ally.pose=ally.safePosition=ally.floorProbe=null;
+      ally.animDt=0;ally.ground=false;ally.impulse?.set(0,0,0);
+      mesh.visible=true;allies.push(ally);face(ally,forward);
       visual(pos,color,24,.65,'poof');
     }
     if(label==='Kage Bunshin')sound('player/'+player.id+'/Kagebunshin.wav');
@@ -1516,7 +1776,10 @@ function botRasengan(bot,enemy,dist,direction,dt){
   if(!bot.rasengan){
     if(bot.id!=='naruto'||now<(bot.rasenganAt??4)||now<bot.next||now<bot.stun||
        dist<95||dist>260||!visibleBetween(bot.pos,enemy.pos))return false;
-    bot.rasengan={start:now,direction:direction.clone(),orb:makeTechniqueOrb('Rasengan')};
+    const orb=makeTechniqueOrb(bot);
+    if(!orb)return false;
+    if(perf)beginPerfCast(false);
+    bot.rasengan={start:now,direction:direction.clone(),orb};
     bot.rasenganAt=now+11;
     playPose(bot,'ref_rasengan_charge',.58);sound('jutsu/Rasengan_Charge.wav',.25);
   }
@@ -1557,10 +1820,14 @@ function updateBot(bot,index,dt){
     const distance=other.pos.distanceToSquared(bot.pos);
     if(distance<nearest){nearest=distance;enemy=other;}
   }
+  if(bot.swingAt&&bot.swingTarget){
+    if(alive(bot.swingTarget))enemy=bot.swingTarget;
+    else bot.swingAt=0;
+  }
   if(!enemy){move(bot,0,0,dt);face(bot,new T.Vector3(1,0,0));animate(bot,'idle',dt);return;}
   const target=enemy.pos.clone().sub(bot.pos),dist=target.length();
   target.y=0;target.normalize();
-  if(botRasengan(bot,enemy,dist,target,dt))return;
+  if(!bot.swingAt&&now>=bot.swing&&botRasengan(bot,enemy,dist,target,dt))return;
   const sees=dist<130&&visibleBetween(bot.pos,enemy.pos);
   const meleeRange=world.traceSolid?29:58;
   let moving=false,advanced=false;
@@ -1579,11 +1846,13 @@ function updateBot(bot,index,dt){
   if(now>=bot.stun&&!bot.swingAt){
     if(sees&&dist<meleeRange&&now>=bot.next){
       bot.ranged=false;bot.swingAt=now+.22;bot.swing=now+.42;bot.next=now+rand(1.2,2);
+      bot.swingTarget=enemy;
     }else if(bot.id==='sasuke'&&dist>115&&dist<320&&now>=bot.next&&now>=(bot.katonAt??0)&&visibleBetween(bot.pos,enemy.pos)){
       bot.ranged=true;bot.swingAt=now+.55;bot.next=now+rand(2.5,4);
+      bot.swingTarget=enemy;
       bot.katonAt=now+8;
       playPose(bot,bot.ground?'ref_gouk_shoot':'air_gouk_shoot',.7);
-    }else{
+    }else if(now>=bot.swing&&(!sees||dist>=meleeRange)){
       let desired=enemy.pos.clone().addScaledVector(target,-meleeRange*.59);
       if(dist<meleeRange*3){
         const flank=new T.Vector3(-target.z,0,target.x).multiplyScalar(meleeRange*.47);
@@ -1652,14 +1921,7 @@ function updateWater(wasSwimming,walking){
   const p=player.pos.clone();
   p.y=surface+.9;
   if(p.y-player.pos.y>100)return;
-  const ripple=sprites.get('ripple');
-  if(ripple){
-    const mesh=new T.Mesh(rippleGeo,new T.MeshBasicMaterial({
-      map:ripple.frames[0],transparent:true,depthWrite:false,blending:T.AdditiveBlending
-    }));
-    mesh.rotation.x=-Math.PI/2;mesh.position.copy(p);mesh.scale.setScalar(25);
-    actors.add(mesh);effects.push({mesh,ttl:.68,left:.68,sprite:ripple,ripple:true});
-  }
+  visual(p,0xffffff,25,.68,'ripple',true);
   if(!wasSwimming&&!player.waterWalk)visual(p,0xc0edff,24,.48,'splash');
   sound('movement/Footstep_Water'+(Math.floor(now*9)%4+1)+'.wav',.3);
 }
@@ -1725,7 +1987,7 @@ function syncPeer(match,token,state,packetTime){
     setActorScale(root);
     recordPeer(peer,state,time);
     peer.nameplate=makeNameplate(state.name);
-    actors.add(root);match.peers.set(token,peer);
+    actors.add(root);match.peers.set(token,peer);refreshOpponents();
   }).catch(error=>console.warn('LAN model',state.hero,error.message)).finally(()=>{
     if(match.loading.get(token)===pending)match.loading.delete(token);
   });
@@ -1746,7 +2008,7 @@ function pollLan(match){
     match.receivedAt=receivedAt;
     for(const [token,peer] of match.peers){
       if(!packet.players[token]||peer.id!==packet.players[token].hero){
-        actors.remove(peer.root);peer.nameplate.remove();match.peers.delete(token);
+        actors.remove(peer.root);peer.nameplate.remove();match.peers.delete(token);refreshOpponents();
         if(locked===peer)locked=null;
       }
     }
@@ -1757,7 +2019,7 @@ function pollLan(match){
     if(lan===match){message('LAN · '+error.message);match.next=performance.now()+500;}
   }).finally(()=>{match.pending=false;});
 }
-function update(dt){
+function update(dt,measure=false){
   const mapEvent=world.updateMap?.(dt,player.pos);
   if(mapEvent?.growl)sound(mapEvent.growl.path,mapEvent.growl.gain);
   if(mapEvent?.shake)player.shakeUntil=now+mapEvent.shake;
@@ -1880,7 +2142,9 @@ function update(dt){
   if(pendingThrow&&now>=pendingThrow.at){
     const {weapon}=pendingThrow;pendingThrow=null;releaseThrow(weapon);
   }
+  const techniqueStart=measure?performance.now():0;
   updateTechnique(dt);
+  if(measure)perfTechniqueMs=performance.now()-techniqueStart;
   if(pendingRasenshuriken&&now>=pendingRasenshuriken.at){
     projectile(pendingRasenshuriken.direction,0xa4eaff,42,player,820,158,'rasenshuriken');
     pendingRasenshuriken=null;
@@ -1908,7 +2172,9 @@ function update(dt){
   }
   for(let i=0;i<botList.length;i++)updateBot(botList[i],i,dt);
   if(lan)updateLan(dt);
-  for(const shot of shots){
+  snapshotVisuals(shots,shotFrame);
+  for(const shot of shotFrame){
+    if(!visuals.live.has(shot))continue;
     shot.mixer?.update(dt);
     if(shot.flame)shot.mesh.material.map=shot.flame.frames[Math.floor(now*24)%shot.flame.frames.length];
     if(shot.kind==='rasenshuriken'){
@@ -1920,9 +2186,10 @@ function update(dt){
       }
     }
     if((shot.kind==='fire'||shot.kind==='volley')&&now>=(shot.fxAt??0)){
-      shot.fxAt=now+.06;
+      shot.fxAt=now+.1;
       if(sprites.has('fireTrail'))visual(shot.mesh.position,0xff742c,12,.23,'fireTrail');
     }
+    if(!visuals.live.has(shot))continue;
     if(shot.grenade&&!shot.stuck)shot.velocity.y-=580*dt;
     if(shot.kind==='shuriken'||(shot.grenade&&!shot.stuck))shot.mesh.rotateY(dt*(shot.kind==='shuriken'?23:9));
     const steps=Math.max(1,Math.ceil(shot.velocity.length()*dt/12));
@@ -1970,7 +2237,7 @@ function update(dt){
           }else if(shot.kind==='fire'||shot.kind==='volley'){
             sound('jutsu/'+(shot.kind==='fire'?'Gouk':'Hous')+'_Hit.wav',.42);
             const heading=shot.velocity.clone().normalize();
-            for(let i=0;i<3;i++)visual(shot.mesh.position.clone().addScaledVector(heading,-i*16)
+            for(let i=0;i<2;i++)visual(shot.mesh.position.clone().addScaledVector(heading,-i*16)
               .add(new T.Vector3(0,12+i*9,0)),0xff7d35,19-i*3,.34+i*.055,
               shot.kind==='fire'?'fireball':'volley',true);
           }else visual(shot.mesh.position,0xff823f,shot.radius*.42,.65,'explosion');
@@ -1982,12 +2249,9 @@ function update(dt){
           }
         }
       }
-      shot.mixer?.stopAllAction();
-      actors.remove(shot.mesh);if(!shot.model)shot.mesh.material.dispose();
-      if(shot.trail){actors.remove(shot.trail);shot.trail.material.dispose();}
+      visuals.release(shot.key,shot);
     }
   }
-  shots=shots.filter(s=>s.ttl>0);
   if(orioke){
     const p=player.pos.clone().add(new T.Vector3(0,14,0));
     if(orioke.cloud){
@@ -2007,10 +2271,12 @@ function update(dt){
       endOrioke();visual(p,0xffffff,18,.4,'poof');
     }
   }
-  for(const ally of allies){
+  snapshotVisuals(allies,allyFrame);
+  for(const ally of allyFrame){
+    if(!visuals.live.has(ally))continue;
     ally.ttl-=dt;
     if(ally.ttl<=0){
-      ally.mixer?.stopAllAction();actors.remove(ally.mesh);
+      visuals.release(ally.key,ally);
       visual(ally.pos,0xffffff,15,.38,'poof');continue;
     }
     if(now>=ally.scanAt){
@@ -2039,14 +2305,22 @@ function update(dt){
       playPose(ally,ally.mesh.animation('stick')?'stick':'punch1',.48);
       damage(target,ally.damage);ally.next=now+.55;
     }
-    animate(ally,moving?'run':'idle',dt);
+    if(!visuals.live.has(ally))continue;
+    const distance=ally.pos.distanceToSquared(player.pos);
+    ally.mesh.visible=distance<=80**2;
+    ally.animDt+=dt;
+    if(ally.mesh.visible&&(distance<=40**2||ally.animDt>=.05)){
+      animate(ally,moving?'run':'idle',ally.animDt);
+      ally.animDt=0;
+    }
   }
-  allies=allies.filter(a=>a.ttl>0);
-  substitutionLogs=substitutionLogs.filter(log=>{
-    if(now<log.until){animate(log,'drop',dt);return true;}
-    log.mixer?.stopAllAction();actors.remove(log.root);return false;
-  });
-  for(const f of effects){
+  for(let i=substitutionLogs.length-1;i>=0;i--){
+    const log=substitutionLogs[i];
+    if(now<log.until)animate(log,'drop',dt);
+    else visuals.release(log.key,log);
+  }
+  for(let i=effects.length-1;i>=0;i--){
+    const f=effects[i];
     f.left-=dt;f.mesh.material.opacity=Math.max(0,f.left/f.ttl)*.85;
     if(f.sprite){
       const frames=f.sprite.frames;
@@ -2054,9 +2328,8 @@ function update(dt){
       f.mesh.material.map=frames[index];
       if(f.ripple)f.mesh.scale.setScalar(25+80*(1-f.left/f.ttl));
     }else f.mesh.scale.setScalar(f.size*(1+.65*(1-f.left/f.ttl)));
-    if(f.left<=0){actors.remove(f.mesh);f.mesh.material.dispose();}
+    if(f.left<=0)releaseVisual(f);
   }
-  effects=effects.filter(f=>f.left>0);
   if(now>noticeUntil)$('notice').textContent=world.canReleaseSeal?.(player.pos)?
     (touch?'Оръжие':'E')+' · освободи печата':prepared&&!charged?prepared[0]+' · ляв бутон или Enter':'';
   updateCamera(dt);
@@ -2080,7 +2353,7 @@ function updateBotNames(){
     const onScreen=!bot.dead&&nameProjection.z>=-1&&nameProjection.z<=1&&Math.abs(nameProjection.x)<1&&Math.abs(nameProjection.y)<1;
     if(bot!==player&&onScreen&&now>=(bot.nameCheckAt??0)){
       bot.nameCheckAt=now+.12;
-      bot.nameOccluded=camera.position.distanceToSquared(namePosition)>1300**2||!visibleBetween(camera.position,namePosition);
+      bot.nameOccluded=camera.position.distanceToSquared(namePosition)>900**2;
     }
     bot.nameplate.hidden=!onScreen||bot.nameOccluded||!bot.root.visible;
     if(!bot.nameplate.hidden){
@@ -2098,7 +2371,7 @@ function updateCamera(dt){
   if(headClearance<Infinity)focus.y=player.pos.y+Math.max(0,headClearance-7);
   if(world.pointSolid(focus))focus.copy(player.pos);
   sun.target.position.set(Math.round(player.pos.x/24)*24,Math.round(player.pos.y/24)*24,Math.round(player.pos.z/24)*24);
-  sun.position.copy(sun.target.position).addScaledVector(world.lighting.direction,1800);
+  sun.position.copy(sun.target.position).addScaledVector(world.lighting.direction,200);
   const side=new T.Vector3(Math.sin(yaw),0,Math.cos(yaw));
   const remaining=Math.max(0,cinematicUntil-now);
   const cinematic=remaining>0?Math.sin(Math.PI*remaining/.85)*.82:0;
@@ -2124,15 +2397,73 @@ function updateCamera(dt){
 }
 const perf=perfParams.has('perf')?$('_perf'):null;
 const perfSamples=new Map();
-let perfWorld,perfReport='',perfRefresh=0,previousPerfFrame=null;
+const perfGpuTimer=perf&&renderer.getContext?.().getExtension('EXT_disjoint_timer_query_webgl2');
+let perfWorld,perfTechniqueMs=0,perfRefresh=0,previousPerfFrame=null,castIndex=0;
+const perfCasts=[], pendingCastMarks=[], longTasks=[];
+let longTaskObserver;
+const readPerfMemory=()=>({
+  textures:renderer.info?.memory.textures??0,
+  programs:renderer.info?.programs?.length??0,
+});
+function beginPerfCast(markFrame){
+  const start=markFrame?performance.mark('cast-start').startTime:performance.now();
+  const entry={index:++castIndex,start,castBase:readPerfMemory(),delta:{textures:0,programs:0}};
+  entry.counts={effects:effects.length,shots:shots.length,substitutionLogs:substitutionLogs.length,allies:allies.length,
+    pools:visuals.pools.size,live:visuals.live.size,pooled:[...visuals.pools.values()].reduce((total,pool)=>total+pool.free.length,0)};
+  entry.initTextureBase=initTextureCount;
+  entry.initTextures=0;
+  entry.counts.sprites=sprites.size;
+  entry.counts.warmedSprites=warmedSpriteCount;
+  perfCasts.push(entry);
+  if(markFrame)pendingCastMarks.push(entry);
+}
+function collectLongTasks(entries){
+  for(const task of entries){
+    const entry=perfCasts.findLast(cast=>cast.start<=task.startTime+task.duration);
+    longTasks.push('longtask '+Math.round(task.duration)+'ms @cast'+(entry?.index??0));
+  }
+}
+function resetPerf(){
+  longTaskObserver?.takeRecords();
+  perfSamples.clear();
+  perfCasts.length=pendingCastMarks.length=longTasks.length=0;
+  castIndex=0;
+  previousPerfFrame=null;
+  perfRefresh=0;
+  performance.clearMarks('cast-start');
+  performance.clearMarks('cast-first-frame');
+  $('perf-copy').textContent='Копирай резултата';
+  renderPerfReport();
+}
 if(perf){
   perf.hidden=false;
+  if(globalThis.PerformanceObserver?.supportedEntryTypes?.includes('longtask')){
+    longTaskObserver=new PerformanceObserver(list=>collectLongTasks(list.getEntries()));
+    longTaskObserver.observe({type:'longtask'});
+  }
+  $('perf-reset').onclick=resetPerf;
+  $('perf-share').onclick=async()=>{
+    if(longTaskObserver)collectLongTasks(longTaskObserver.takeRecords());
+    const file=new File([renderPerfReport()],'nnk-perf.txt',{type:'text/plain'});
+    if(navigator.canShare?.({files:[file]})){
+      try{await navigator.share({files:[file]});return;}
+      catch(error){if(error.name==='AbortError')return;}
+    }
+    const url=URL.createObjectURL(file);
+    const link=document.createElement('a');
+    link.href=url;
+    link.download=file.name;
+    link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),30000);
+  };
   $('perf-copy').onclick=async()=>{
-    try{await navigator.clipboard.writeText(perfReport);$('perf-copy').textContent='Копирано';}
+    if(longTaskObserver)collectLongTasks(longTaskObserver.takeRecords());
+    try{await navigator.clipboard.writeText(renderPerfReport());$('perf-copy').textContent='Копирано';}
     catch{$('perf-copy').textContent='Направи снимка';}
   };
 }
 function rasenganPhase(){
+  if(chargeClone||allies.some(ally=>ally.kind==='clone'))return 'клонинг';
   if(charged?.skill[0]==='Rasengan')return 'зареждане';
   if(rush?.label==='Rasengan')return 'атака';
   if(botList.some(bot=>bot.rasengan))return 'бот';
@@ -2140,33 +2471,39 @@ function rasenganPhase(){
   if(effects.some(effect=>effect.sprite&&(effect.sprite===hit||effect.sprite===wave)))return 'ефект';
   return '';
 }
-function recordPerf(elapsed,{phase,updateMs,renderMs,scale,draws}){
-  const key=phase?'Rasengan':'Движение';
-  if(!perfSamples.has(key))perfSamples.set(key,{frames:[],maxDraws:0,index:0});
-  const samples=perfSamples.get(key),index=samples.index++%420;
-  samples.frames[index]=[elapsed,updateMs,renderMs,scale,phase];
-  samples.maxDraws=Math.max(samples.maxDraws,draws);
-  if(performance.now()<perfRefresh)return;
-  perfRefresh=performance.now()+600;
-  const lines=[world.name+' · '+botList.length+' бота · '+renderScale.toFixed(2)+'× '+quality.value];
-  for(const [label,{frames,maxDraws}] of perfSamples){
-    const percentile=(values,q)=>values.sort((a,b)=>a-b)[Math.floor((values.length-1)*q)].toFixed(1);
-    const frameTimes=frames.map(frame=>frame[0]);
-    const p95=i=>percentile(frames.map(frame=>frame[i]),.95);
-    const slow=frames.filter(frame=>frame[0]>50).length;
-    const scales=frames.map(frame=>frame[3]);
-    lines.push(label+' · p50 '+percentile(frameTimes,.5)+' / p95 '+percentile(frameTimes,.95)+' ms · '+slow+'/'+frames.length+' >50 ms');
-    lines.push('CPU '+p95(1)+' ms · render CPU '+p95(2)+' ms · '+maxDraws+' draws · '+Math.min(...scales).toFixed(2)+'–'+Math.max(...scales).toFixed(2)+'×');
-    if(label==='Rasengan'){
-      const details=[];
-      for(const phase of ['зареждане','атака','бот','ефект']){
-        const times=frames.filter(frame=>frame[4]===phase).map(frame=>frame[0]);
-        if(times.length)details.push(phase+' '+percentile(times,.95)+'ms ('+times.length+')');
-      }
-      lines.push(details.join(' · '));
-    }
+function recordPerf(elapsed,frame){
+  const group=Math.min(frame.cast,3);
+  const phase=frame.phase||'Движение';
+  const key=group+':'+phase;
+  if(!perfSamples.has(key))perfSamples.set(key,{group,phase,frames:[],index:0});
+  const samples=perfSamples.get(key);
+  samples.frames[samples.index++%1200]={...frame,elapsed};
+}
+function renderPerfReport(){
+  const mode=perfParams.has('scale')?'фиксиран '+(fixedScale||renderScale).toFixed(2)+'×':'адаптивен';
+  const lines=[mode+' · '+(world?.name??'—')+' · '+botList.length+' бота · '+renderScale.toFixed(2)+'× '+quality.value,
+    'Текущ каст '+castIndex+' · sprites загрети '+warmedSpriteCount+' · '+(perfGpuTimer?'има GPU таймер':'няма GPU таймер')];
+  const signed=value=>(value>=0?'+':'')+value;
+  for(const entry of perfCasts){
+    lines.push('Каст '+entry.index+' · textures '+signed(entry.delta.textures)+' · programs '+signed(entry.delta.programs)+' · initTexture '+entry.initTextures+
+      (entry.firstFrame===undefined?'':' · първи кадър '+entry.firstFrame.toFixed(1)+' ms'));
+    lines.push(Object.entries(entry.counts).map(([name,count])=>name+' '+count).join(' · '));
   }
-  perfReport=lines.join('\n');$('perf-text').textContent=perfReport;
+  const percentile=(values,q)=>values.sort((a,b)=>a-b)[Math.floor((values.length-1)*q)].toFixed(1);
+  for(const {group,phase,frames} of perfSamples.values()){
+    const p=(key,q=.95)=>percentile(frames.map(frame=>frame[key]),q);
+    const max=key=>Math.max(...frames.map(frame=>frame[key]));
+    const slow=frames.filter(frame=>frame.elapsed>50).length;
+    const label=group===0?'Преди каст':group===3?'Каст 3+':'Каст '+group;
+    lines.push(label+' · '+phase+' ('+frames.length+')'+(frames.length<40?' (малко)':'')+
+      ' · p50 '+p('elapsed',.5)+' / p95 '+p('elapsed')+' ms · '+slow+'/'+frames.length+' >50 ms');
+    lines.push('CPU '+p('updateMs')+' ms · technique '+p('techniqueMs')+' ms · render CPU '+p('renderMs')+' ms · '+max('draws')+' draws · triangles '+max('triangles'));
+  }
+  lines.push(...longTasks);
+  if(!longTaskObserver)lines.push('longtask · браузърът не поддържа измерването');
+  const report=lines.join('\n');
+  $('perf-text').textContent=report;
+  return report;
 }
 const frameWindow={start:0,frames:0,slow:0,stalls:0,stableSince:0};
 function adaptResolution(t,elapsed){
@@ -2194,20 +2531,40 @@ function adaptResolution(t,elapsed){
 }
 let last=performance.now();
 renderer.setAnimationLoop(t=>{
+  visuals.beginFrame();
   const elapsed=t-last;last=t;
   const dt=Math.min(elapsed/1000,.045);
   if(touch&&innerHeight>innerWidth){previousPerfFrame=null;return;}
-  if(world&&!paused&&(touch||lan)&&!document.hidden&&elapsed>0&&elapsed<250)adaptResolution(t,elapsed);
+  if(world&&!paused&&!document.hidden&&elapsed>0&&elapsed<250)adaptResolution(t,elapsed);
   else {frameWindow.frames=0;frameWindow.stableSince=0;}
   const measure=perf&&world&&!paused&&elapsed>0&&!document.hidden;
+  if(measure&&perfWorld!==world){perfWorld=world;resetPerf();}
   const start=measure?performance.now():0;
-  if(world&&!paused){now+=Math.max(0,dt);update(Math.max(0,dt));}
+  if(measure)perfTechniqueMs=0;
+  if(world&&!paused){now+=Math.max(0,dt);update(Math.max(0,dt),measure);}
   const updateEnd=measure?performance.now():0;
   renderer.render(scene,camera);
   if(measure){
-    if(perfWorld!==world){perfWorld=world;perfSamples.clear();perfRefresh=0;previousPerfFrame=null;}
     const renderMs=performance.now()-updateEnd;
     if(previousPerfFrame)recordPerf(elapsed,previousPerfFrame);
-    previousPerfFrame={phase:rasenganPhase(),updateMs:updateEnd-start,renderMs,scale:renderScale,draws:renderer.info?.render.calls??0};
+    previousPerfFrame={phase:rasenganPhase(),updateMs:updateEnd-start,techniqueMs:perfTechniqueMs,renderMs,scale:renderScale,draws:renderer.info?.render.calls??0,triangles:renderer.info?.render.triangles??0,cast:castIndex};
+    const entry=perfCasts.at(-1);
+    if(entry){
+      const memory=readPerfMemory();
+      entry.delta.textures=memory.textures-entry.castBase.textures;
+      entry.delta.programs=memory.programs-entry.castBase.programs;
+      entry.initTextures=initTextureCount-entry.initTextureBase;
+    }
+    if(pendingCastMarks.length){
+      const end=performance.mark('cast-first-frame').startTime;
+      for(const cast of pendingCastMarks)cast.firstFrame=end-cast.start;
+      pendingCastMarks.length=0;
+      performance.clearMarks('cast-start');
+      performance.clearMarks('cast-first-frame');
+    }
+    if(performance.now()>=perfRefresh){
+      perfRefresh=performance.now()+600;
+      renderPerfReport();
+    }
   }else previousPerfFrame=null;
 });

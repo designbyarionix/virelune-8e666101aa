@@ -146,5 +146,5 @@
 .own-name{color:#ffe29c;border:1px solid #bd8e4d;background:#2b2117df}
 
 #_perf{position:fixed;top:calc(env(safe-area-inset-top) + 4px);left:50%;transform:translateX(-50%);z-index:15;padding:5px 8px;background:#101715ed;color:#fff3d8;border:1px solid #be9050;border-radius:5px;text-align:center}
-#_perf pre{margin:0 0 3px;font:10px/1.2 monospace;text-align:left}
+#_perf pre{max-width:85vw;max-height:38vh;overflow:auto;margin:0 0 3px;font:10px/1.2 monospace;text-align:left}
 #_perf button{padding:3px 7px;font-size:11px}

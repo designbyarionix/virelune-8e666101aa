@@ -11,7 +11,9 @@ import time
 
 HEROES = {'naruto', 'sasuke', 'kakashi', 'sakura', 'anbu'}
 ROOM_SIZE = 8
-MAX_ROOMS = 64
+MAX_ROOMS = 1024
+MAX_PLAYERS = 512
+TICK_INTERVAL = .05
 RADIUS = 1400
 INTEREST_LIMIT = 40
 STATE = struct.Struct('<hhhIBbBBBB')
@@ -56,13 +58,11 @@ class Peer:
 
 
 class Room:
-    def __init__(self, name, rooms):
+    def __init__(self, name):
         self.name = name
-        self.rooms = rooms
         self.peers = {}
         self.next_id = 0
         self.started = time.perf_counter()
-        self.task = asyncio.create_task(self.run())
 
     def add(self, token, hero, name, writer):
         old = next((peer for peer in self.peers.values() if peer.token == token), None)
@@ -107,11 +107,13 @@ class Room:
 
     def tick(self):
         stamp = int((time.perf_counter() - self.started) * 1000) & 0xffffffff
+        dropped = 0
         for peer in list(self.peers.values()):
             if not peer.state or peer.writer.is_closing():
                 continue
             if peer.writer.transport.get_write_buffer_size() > 16384:
                 peer.writer.close()
+                dropped += 1
                 continue
             nearby = []
             for other in self.peers.values():
@@ -146,16 +148,20 @@ class Room:
             peer.visible = {pid: other.state for pid, other in visible.items()}
             peer.hits.clear()
 
-    async def run(self):
-        try:
-            deadline = time.perf_counter()
-            while self.peers:
-                self.tick()
-                deadline = max(deadline + .05, time.perf_counter())
-                await asyncio.sleep(max(0, deadline - time.perf_counter()))
-        finally:
-            if self.rooms.get(self.name) is self:
-                self.rooms.pop(self.name, None)
+        return dropped
+
+
+async def tick_rooms(rooms):
+    deadline = time.perf_counter()
+    while True:
+        dropped = sum(room.tick() for room in rooms.values())
+        if dropped:
+            print(f'Backpressure: {dropped} connections closed this tick', file=sys.stderr)
+        deadline += TICK_INTERVAL
+        now = time.perf_counter()
+        if deadline < now:
+            deadline += (int((now-deadline)/TICK_INTERVAL)+1)*TICK_INTERVAL
+        await asyncio.sleep(max(0,deadline-now))
 
 
 def parse_join(data):
@@ -189,8 +195,11 @@ async def run_worker():
             if not room_name or (room_name not in rooms and len(rooms) >= MAX_ROOMS):
                 raise ValueError('Сървърът е пълен')
             room = rooms.get(room_name)
+            reconnecting = room and any(p.token == token for p in room.peers.values())
+            if not reconnecting and sum(len(r.peers) for r in rooms.values()) >= MAX_PLAYERS:
+                raise ValueError('Сървърът е пълен')
             if not room:
-                room = rooms[room_name] = Room(room_name, rooms)
+                room = rooms[room_name] = Room(room_name)
             peer = room.add(token, hero, name, writer)
             write_frame(writer, control(room=room.name, slot=peer.slot, id=peer.id))
             await writer.drain()
@@ -205,13 +214,21 @@ async def run_worker():
         finally:
             if room and peer and room.peers.get(peer.id) is peer:
                 room.peers.pop(peer.id)
+                if not room.peers:
+                    rooms.pop(room.name, None)
             writer.close()
             with suppress(OSError):
                 await writer.wait_closed()
 
     async with await asyncio.start_server(connection, '127.0.0.1', 0) as server:
         print(server.sockets[0].getsockname()[1], flush=True)
-        await wait_for_parent()
+        ticker = asyncio.create_task(tick_rooms(rooms))
+        try:
+            await wait_for_parent()
+        finally:
+            ticker.cancel()
+            with suppress(asyncio.CancelledError):
+                await ticker
 
 
 if __name__ == '__main__':

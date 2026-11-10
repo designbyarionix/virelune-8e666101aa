@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <defs>
+    <radialGradient id="chakra"><stop stop-color="#fff"/><stop offset=".19" stop-color="#b9f7ff"/><stop offset=".45" stop-color="#2789f9"/><stop offset=".72" stop-color="#124bde" stop-opacity=".9"/><stop offset="1" stop-color="#053097" stop-opacity="0"/></radialGradient>
+    <linearGradient id="swirl" x2="0.86" y2="1"><stop stop-color="#56a7ff" stop-opacity=".32"/><stop offset=".48" stop-color="#ccf9ff"/><stop offset="1" stop-color="#2572fa"/></linearGradient>
+  </defs>
+  <circle cx="48" cy="48" r="47" fill="url(#chakra)"/>
+  <g fill="none" stroke="url(#swirl)" stroke-linecap="round">
+    <path d="M24 74C5 64 16 30 41 16s54 5 43 29c-6 16-32 29-46 20-9-5-5-20 6-24 13-4 18 7 10 13" stroke-width="3"/>
+    <path d="M72 21c18 13 9 45-17 57-20 10-41 3-42-15-1-17 22-35 41-32 15 3 19 20 6 29" stroke-width="2.4"/>
+    <path d="M16 43c7-20 30-34 49-29m17 40C74 78 52 86 31 81M27 58c-1-12 13-24 26-24 12 0 17 13 7 21" stroke-width="1.5" opacity=".82"/>
+  </g>
+  <circle cx="48" cy="48" r="8" fill="#e6fcff" opacity=".88"/>
+</svg>

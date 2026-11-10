@@ -1,0 +1,113 @@
+MODEL models/nnk_academy/barks.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	KILLMAP
+	NOSHADER
+}
+MODEL models/nnk_academy/bbrd.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/build1.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/cable.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/entran.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/fence.3ds
+{
+	ORIGIN 0 0 -10
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/grnd.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/latern.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/leaf1.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/mainbuil.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/mount1.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/pillar.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/sign.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/wall1.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/wall2.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_academy/swing1.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}

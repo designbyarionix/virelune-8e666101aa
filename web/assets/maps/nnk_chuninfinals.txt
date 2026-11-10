@@ -1,0 +1,50 @@
+USEOCTREE
+
+MODEL models/nnk_chuninfinals/cbarks.3ds
+{
+	ORIGIN 0 0 0.2
+	ROTATION 0 0 0
+	SCALE 1 1 1
+}
+MODEL models/nnk_chuninfinals/cbboards.3ds
+{
+	ORIGIN 0 0 0.2
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_chuninfinals/cinner.3ds
+{
+	ORIGIN 0 0 0
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_chuninfinals/cleaves.3ds
+{
+	ORIGIN 0 0 0.2
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_chuninfinals/couter.3ds
+{
+	ORIGIN 0 0 -1
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_chuninfinals/mountain.3ds
+{
+	ORIGIN 0 0 0.2
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_chuninfinals/mdlstuff.3ds
+{
+	ORIGIN 98 1 -243.5
+	ROTATION 0 0 0
+	SCALE 1 1 1
+}
+

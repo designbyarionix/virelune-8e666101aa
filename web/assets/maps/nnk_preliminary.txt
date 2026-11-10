@@ -1,0 +1,35 @@
+MODEL models/nnk_preliminary/prails.3ds
+{
+	ORIGIN 0 0 512
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_preliminary/parms.3ds
+{
+	ORIGIN 5 0 0
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_preliminary/pfarm.3ds
+{
+	ORIGIN 5 0 0
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_preliminary/phand1.3ds
+{
+	ORIGIN 5 0 0
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}
+MODEL models/nnk_preliminary/phand2.3ds
+{
+	ORIGIN 5 0 0
+	ROTATION 0 0 0
+	SCALE 1 1 1
+	NOSHADER
+}

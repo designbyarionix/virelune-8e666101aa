@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="bg">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NNK Web · тренировъчна арена</title><link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+</head>
+<body>
+<main id="game" aria-label="3D арена"></main>
+<aside id="_perf" hidden><pre id="perf-text">Влез в арена, за да започне измерването.</pre><button id="perf-copy" type="button">Копирай резултата</button></aside>
+<div id="bot-names" aria-hidden="true"></div>
+<div id="hud" hidden><section class="shinobi-identity" aria-label="Статус на героя">
+  <div class="shinobi-portrait"><img id="hero-portrait" alt=""><span aria-hidden="true">☁</span></div>
+  <div class="shinobi-vitals">
+    <header><strong id="hero"></strong></header>
+    <div class="shinobi-meter health"><progress id="hp" max="100" value="100" aria-label="Живот"></progress><output id="hp-value"></output></div>
+    <div class="shinobi-meter chakra"><progress id="chakra" max="10000" value="10000" aria-label="Чакра"></progress><output id="chakra-value"></output></div>
+  </div>
+</section>
+<section class="shinobi-radar" aria-label="Миникарта">
+  <div class="radar-dial"><div class="radar-viewport"><canvas id="radar-map" width="192" height="192"></canvas><span id="radar-arrow" aria-hidden="true">▲</span></div><span class="radar-north">N</span>
+  <div class="radar-zoom"><button id="radar-in" type="button" aria-label="Приближи миникартата">+</button><button id="radar-out" type="button" aria-label="Отдалечи миникартата">−</button></div></div>
+  <div class="radar-caption"><strong id="arena"></strong><small id="radar-coordinates"></small><small id="score"></small></div>
+</section><span id="crosshair" aria-hidden="true"></span><div id="weapon"></div><section id="scoreboard" hidden><strong>Резултати</strong><ol></ol></section><div id="target" hidden></div><div id="battle-intro" hidden role="status"><span id="battle-ready">Готов?</span><img id="battle-go" src="storm/battle-start.webp" alt="Начало на битката" hidden></div>
+<aside id="jutsu-cut-in" hidden aria-hidden="true">
+  <div class="cut-in-portrait"><img id="cut-in-image" alt=""></div>
+  <div class="cut-in-caption"><span id="cut-in-hero"></span><strong id="cut-in-name"></strong></div>
+</aside><div id="notice" role="status"></div><p class="hint">WASD · движение　 WW със задържане · даш　 S + Space · салто　 Скок + W до стена · бягане по стена　 F · чакра / ходене по вода　 Колелце · приближаване / отдалечаване　 Shift + WASD · печати　 P · комбинации　 LMB / RMB · удари　 Q · блок　 E · оръжие　 T · прицел　 Esc · пауза</p></div>
+<div id="rotate-device" role="status"><strong>Завърти телефона</strong><span>Играта се играе на хоризонтален екран.</span></div>
+<div id="touch-controls" hidden aria-label="Управление с докосване">
+  <div id="joystick" aria-label="Джойстик за движение"><i aria-hidden="true"></i><span id="joystick-thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18c5-1 4-12 12-12a6 6 0 1 1-4 10c-4-3 0-9 3-6 2 2 0 4-1 3m5-6 4-2M3 18h9"/></svg></span></div>
+  <button id="touch-score" class="shinobi-round" type="button" aria-label="Резултати"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h18v13h-7l-5 4v-4H3Z"/><path d="M7 10h1m4 0h1m4 0h1"/></svg></button>
+  <div class="touch-toolbar">
+    <details class="touch-extra"><summary aria-label="Инвентар и защита"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6V4h8v2m4 4v10H4V10m0 0 2-4h12l2 4-8 4-8-4Zm6 3v3h4v-3"/></svg></summary>
+      <div>
+        <button id="touch-cycle">Смени оръжие</button><button id="touch-lock">Цел</button><button id="touch-block">Блок</button>
+        <button id="touch-focus">Чакра</button><button id="touch-heavy">Тежък удар</button>
+      </div>
+    </details>
+    <button id="touch-scroll" class="shinobi-round" aria-label="Още техники" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7h13l-3 13H4a2 2 0 0 1 0-4h2L9 4h11a2 2 0 1 1 0 4h-2M11 11h5m-6 3h5"/></svg></button>
+    <button id="touch-menu" class="shinobi-round" aria-label="Настройки"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 4 1-2h4l1 2 2 1 2-1 2 3-1 2v3l2 2-2 3-2-1-2 1-1 3h-4l-1-3-2-1-2 1-2-3 2-2V9L4 7l2-3 2 1 1-1Z"/><circle cx="12" cy="11" r="3"/></svg></button>
+  </div>
+  <div class="touch-arsenal">
+    <div id="touch-techniques" aria-label="Техники на героя"></div>
+    <button id="touch-weapon" class="shinobi-round" aria-label="Хвърли оръжие"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 20 7-7-1-2L21 3l-4 12-3-1-8 7m6-8 9-10"/><circle cx="4" cy="20" r="2"/></svg><span id="touch-weapon-label">Kunai</span></button>
+  </div>
+  <div class="touch-actions">
+    <button id="touch-jump" class="shinobi-round" aria-label="Скок"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="4" r="2"/><path d="m5 8 5 3 2-3 3 4 5-3m-8 0-1 7-5 4m5-4 5 2 2 3"/></svg><span>Скок</span></button>
+    <button id="touch-dash" class="shinobi-round" aria-label="Даш"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="17" cy="4" r="2"/><path d="m6 8 7-2 4 4 4 1m-8-4-3 6 5 2-2 5m-3-7-4 4H2m4-5H3m5-7H4"/></svg></button>
+    <button id="touch-hit" class="shinobi-round" aria-label="Удар"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13 3 9l2-3 3 1 1-3 3 1 2-2 3 2 3 1 2 4-3 6-4 4H9Zm4-6 2 4m2-6 2 4m3-4 2 4m-5 8-1-3-5-2-3 2 3 5"/></svg></button>
+  </div>
+</div>
+<section id="menu" aria-label="Naruto Arena">
+ <div class="title-stage">
+  <div class="title-art" aria-hidden="true"></div>
+  <div class="title-copy">
+   <p class="title-kicker">N A I &nbsp; T E K I &nbsp; K E N S E I</p>
+   <h1>Naruto <em>Arena</em></h1>
+   <p id="title-subtitle" class="title-subtitle">Избери шиноби. Влез в битка.</p>
+   <div id="lobby-profile" class="settings" hidden><label>Име <input id="player-name" type="text" maxlength="24" autocomplete="nickname"></label></div>
+   <div class="title-actions">
+    <button id="play" class="arena-button arena-primary" type="button" disabled>Влез в арената <span aria-hidden="true">›</span></button>
+    <button id="title-settings" class="arena-button" type="button" aria-controls="arena-settings" aria-expanded="false">Настройки</button>
+   </div>
+  </div>
+  <div class="title-status"><p id="status" role="status">Избери герой и карта, за да влезеш в арената.</p></div>
+ </div>
+ <div id="arena-settings" class="panel title-panel" hidden>
+  <div class="title-panel-header"><h2>Настройки на арената</h2><button id="close-settings" type="button" aria-label="Затвори">×</button></div>
+  <div class="settings">
+<label id="character-field">Герой <select id="character"></select></label>
+<label>Карта <select id="map"></select></label>
+<label>Режим <select id="mode"><option value="training">Тренировка</option><option value="deathmatch">Deathmatch</option><option value="teamplay">Teamplay</option></select></label>
+<label>Ботове <select id="bots"><option>0</option><option>1</option><option selected>3</option><option>5</option><option>9</option></select></label>
+</div>
+<div class="settings audio-settings">
+<label>Музика и фон <input id="music-volume" type="range" min="0" max="100" value="55"></label>
+<label>Звукови ефекти <input id="effects-volume" type="range" min="0" max="100" value="80"></label>
+<label>Графика <select id="graphics-quality"><option value="balanced">Балансирана</option><option value="detail">Детайлна</option><option value="light">Лека</option></select></label>
+</div>
+<div id="training" hidden><button id="resume">Продължи</button><button id="restart-match">Нов мач</button><button id="addbots">+ 3 бота</button><label><input type="checkbox" id="free" checked> Неограничени оръжия, чакра и издръжливост</label><div id="techniques"></div><label>Оригинални анимации <select id="sequence"></select></label><button id="preview-sequence">Покажи</button></div>
+
+ </div>
+</section>
+<script type="module">
+  const settingsButton = document.getElementById('title-settings');
+  const settingsPanel = document.getElementById('arena-settings');
+  function setSettings(open) {
+    settingsPanel.hidden = !open;
+    settingsButton.setAttribute('aria-expanded', String(open));
+    document.getElementById(open ? 'close-settings' : 'title-settings').focus();
+  }
+  settingsButton.onclick = () => setSettings(settingsPanel.hidden);
+  document.getElementById('close-settings').onclick = () => setSettings(false);
+  settingsPanel.addEventListener('keydown', event => {
+    if (event.key === 'Escape') setSettings(false);
+  });
+  const status = document.getElementById('status');
+  if (location.protocol === 'file:') {
+    status.textContent = 'Стартирай Start NNK Web.cmd от папката на играта.';
+  } else {
+    const original = status.textContent;
+    status.textContent = 'Зареждам игровия модул…';
+    import('./game.js').then(() => {
+      if (status.textContent === 'Зареждам игровия модул…') status.textContent = original;
+    }).catch(error => {
+      console.error(error);
+      if (status.textContent === 'Зареждам игровия модул…') {
+        status.textContent = 'Игровият модул не се зареди. Презареди страницата, за да опиташ отново. (' + error.message + ')';
+      }
+    });
+  }
+</script>
+</body>
+</html>

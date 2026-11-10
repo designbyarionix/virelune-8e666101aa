@@ -46,8 +46,8 @@ const ambient=new T.HemisphereLight(0xf4f8ff,0xb2aa96,1.65);scene.add(ambient);
 const sun=new T.DirectionalLight(0xffe3bd,1.45);
 sun.position.set(1200,1900,500);
 sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);
-Object.assign(sun.shadow.camera,{left:-650,right:650,top:650,bottom:-650,near:50,far:3500});
-sun.shadow.bias=-.00025;sun.shadow.normalBias=1.3;sun.shadow.radius=2;
+Object.assign(sun.shadow.camera,{left:-110,right:110,top:110,bottom:-110,near:40,far:400});
+sun.shadow.bias=-.00025;sun.shadow.normalBias=1.3;sun.shadow.radius=1;
 sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun,sun.target);
 const skyColor=new T.Color(0x9ac1c2);
@@ -76,7 +76,7 @@ const keys=new Set(),taps=new Map();
 const touch=new URLSearchParams(location.search).has('touch')||
   (globalThis.matchMedia?.('(pointer: coarse)').matches??false);
 const quality=$('graphics-quality');
-const qualityLimits={balanced:[1.15,1.75,1450000],detail:[1.25,2,2000000],light:[1,1.2,850000]};
+const qualityLimits={balanced:[1,1.4,1200000],detail:[1,1.6,1600000],light:[.75,1,800000]};
 const perfParams=new URLSearchParams(location.search);
 const fixedScale=perfParams.has('perf')?Number(perfParams.get('scale')):0;
 try{quality.value=localStorage.getItem('nnk-graphics')??'balanced';}catch{quality.value='balanced';}
@@ -88,9 +88,9 @@ function resolutionRange(){
     const fixed=Math.min(devicePixelRatio,fixedScale);
     return [fixed,fixed];
   }
-  const cap=Math.min(devicePixelRatio,touch?maximum:Math.max(1.5,maximum),
+  const cap=Math.min(devicePixelRatio,maximum,
     Math.sqrt(pixels/(innerWidth*innerHeight)));
-  const max=Math.max(Math.min(devicePixelRatio,1),cap);
+  const max=Math.max(Math.min(devicePixelRatio,minimum),cap);
   return [Math.min(max,minimum),max];
 }
 function setResolution(scale){
@@ -709,7 +709,7 @@ $('play').onclick=async()=>{
     next.group.traverse(mesh=>{
       if(!mesh.isMesh)return;
       mesh.receiveShadow=true;
-      mesh.castShadow=mode!=='lan'&&mesh.visible&&!mesh.userData.bsp&&!next.waterMeshes.includes(mesh)&&!/ground|grnd|terrain|water|mount/i.test(mesh.name);
+      mesh.castShadow=false;
     });
     world={...next,name};scene.add(next.group);
     const mapAudio=(world.ambience??[]).filter(track=>!track.triggered)
@@ -738,11 +738,12 @@ $('play').onclick=async()=>{
       for(const actor of [player,...botList])actor.root.animation('ref_rasengan_knockback_hit');
       const naruto=player.id==='naruto'?player:botList.find(bot=>bot.id==='naruto');
       for(const pose of ['charge','charge_bunshin','ready','thrust','end'])naruto.root.animation('ref_rasengan_'+pose);
-      if(renderer.compile){
-        const orb=makeTechniqueOrb('Rasengan');
-        orb.position.copy(player.pos);
-        try{renderer.compile(scene,camera);}finally{removeTechniqueOrb(orb);}
-      }
+    }
+    if(renderer.compile){
+      renderer.compile(scene,camera);
+      const orb=makeTechniqueOrb('Rasengan');
+      orb.position.copy(player.pos);
+      try{renderer.compile(scene,camera);}finally{removeTechniqueOrb(orb);}
     }
     $('addbots').hidden=!!lan;
     $('hud').hidden=false;$('training').hidden=false;
@@ -2098,7 +2099,7 @@ function updateCamera(dt){
   if(headClearance<Infinity)focus.y=player.pos.y+Math.max(0,headClearance-7);
   if(world.pointSolid(focus))focus.copy(player.pos);
   sun.target.position.set(Math.round(player.pos.x/24)*24,Math.round(player.pos.y/24)*24,Math.round(player.pos.z/24)*24);
-  sun.position.copy(sun.target.position).addScaledVector(world.lighting.direction,1800);
+  sun.position.copy(sun.target.position).addScaledVector(world.lighting.direction,200);
   const side=new T.Vector3(Math.sin(yaw),0,Math.cos(yaw));
   const remaining=Math.max(0,cinematicUntil-now);
   const cinematic=remaining>0?Math.sin(Math.PI*remaining/.85)*.82:0;
@@ -2197,7 +2198,7 @@ renderer.setAnimationLoop(t=>{
   const elapsed=t-last;last=t;
   const dt=Math.min(elapsed/1000,.045);
   if(touch&&innerHeight>innerWidth){previousPerfFrame=null;return;}
-  if(world&&!paused&&(touch||lan)&&!document.hidden&&elapsed>0&&elapsed<250)adaptResolution(t,elapsed);
+  if(world&&!paused&&!document.hidden&&elapsed>0&&elapsed<250)adaptResolution(t,elapsed);
   else {frameWindow.frames=0;frameWindow.stableSince=0;}
   const measure=perf&&world&&!paused&&elapsed>0&&!document.hidden;
   const start=measure?performance.now():0;

@@ -33,9 +33,11 @@ for(const [id,h] of Object.entries(heroes))$('character').add(new Option(h.label
 for(const id of maps)$('map').add(new Option(names[id],id));
 $('map').value='chuninfinals';
 
+const touch=new URLSearchParams(location.search).has('touch')||
+  (globalThis.matchMedia?.('(pointer: coarse)').matches??false);
 let renderer;
 try{
-  renderer=new T.WebGLRenderer({antialias:true});
+  renderer=new T.WebGLRenderer({antialias:!touch,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
   renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.03;
   if(renderer.shadowMap){renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFShadowMap;}
@@ -78,8 +80,6 @@ function refreshOpponents(){
 let cameraZoom=238,cameraDistance=238;
 let yaw=0,pitch=0,combo='',sealUntil=0,prepared=null,attackUntil=0,rush=null;
 const keys=new Set(),taps=new Map();
-const touch=new URLSearchParams(location.search).has('touch')||
-  (globalThis.matchMedia?.('(pointer: coarse)').matches??false);
 const quality=$('graphics-quality');
 const qualityLimits={balanced:[1,1.4,1200000],detail:[1,1.6,1600000],light:[.75,1,800000]};
 const perfParams=new URLSearchParams(location.search);
@@ -133,6 +133,10 @@ if(touch){
 const alive=actor=>!actor.dead;
 const enemies=(a,b)=>a!==b&&(mode==='training'?(a===player||b===player):mode==='deathmatch'||mode==='lan'||a.team!==b.team);
 const motion=new T.Vector3(), goal=new T.Vector3(), forward=new T.Vector3(), right=new T.Vector3();
+// move() runs for every actor every frame; allocating here is the main source of
+// GC pauses on iOS, so it borrows these scratch values instead.
+const probeA=new T.Vector3(), probeB=new T.Vector3(), raisedProbe=new T.Vector3(), landingProbe=new T.Vector3();
+const stepHeights=[4,8,12,18], moveAxes=[['x',0],['z',0],['y',0]];
 const fxGeo=new T.SphereGeometry(1,10,7), rippleGeo=new T.PlaneGeometry(1,1), rand=(a,b)=>a+Math.random()*(b-a);
 const rasenganCoreGeometry=new T.SphereGeometry(.72,touch?14:28,touch?10:20);
 const rasenganCoreMaterial=new T.ShaderMaterial({
@@ -563,13 +567,73 @@ function updateFocusEffect(){
   }
 }
 const soundTemplates=new Map();
+const soundBuffers=new Map(),soundRequests=new Map();
+let audioContext;
+function audioEngine(){
+  if(audioContext!==undefined)return audioContext;
+  const Context=globalThis.AudioContext??globalThis.webkitAudioContext;
+  audioContext=Context?new Context():null;
+  return audioContext;
+}
+function resumeAudio(){
+  const context=audioEngine();
+  if(context?.state==='suspended')context.resume().catch(()=>{});
+}
+function decodeSound(url){
+  const context=audioEngine();
+  if(!context)return Promise.resolve();
+  if(soundBuffers.has(url))return Promise.resolve();
+  if(soundRequests.has(url))return soundRequests.get(url);
+  const request=fetch(url)
+    .then(response=>response.arrayBuffer())
+    .then(data=>context.decodeAudioData(data))
+    .then(buffer=>soundBuffers.set(url,buffer))
+    .catch(()=>soundBuffers.set(url,null))
+    .finally(()=>soundRequests.delete(url));
+  soundRequests.set(url,request);
+  return request;
+}
+// Decoding a .wav inside sound() stalls the main thread on iOS Safari, which is
+// exactly when a jutsu fires. Decode these up front, once the arena is running.
+const warmSoundPaths=[
+  'jutsu/Jutsu_Enabled.wav','jutsu/Rasengan_Charge.wav','jutsu/Rasengan_Ready.wav','jutsu/Rasengan_Spin.wav',
+  'jutsu/Rasengan_Hit.wav','jutsu/Chidori_Hit.wav','jutsu/Chidori_Loop.wav','jutsu/Gouk_Shoot.wav',
+  'jutsu/Hous_Shoot.wav','jutsu/Heal_Loop.wav','jutsu/Orioke.wav','jutsu/Power_Punch.wav','jutsu/Power_Kick.wav',
+  'jutsu/Kagebunshin_Spawn.wav','jutsu/Pakkun_Spawn.wav','jutsu/Kawarimi_Drop.wav','player/naruto/Rasengan.wav',
+  'taijutsu/Hit_1.wav','taijutsu/Miss_1.wav','taijutsu/Block_1.wav','misc/Focus_Chakra.wav',
+  'movement/Dash.wav','movement/Dodge.wav','movement/Jump.wav','movement/Jump_Spin.wav','movement/Wall_Jump.wav',
+  'movement/Backflip.wav','movement/Backflip_End.wav','weapons/Kunai_Throw.wav','weapons/Shuriken_Throw.wav',
+  'weapons/Metal_Clash1.wav','weapons/Explosion.wav'];
+// One at a time: firing every request at once starves the map and model loads of
+// connections, which stalls the loading screen.
+let soundWarmQueue=Promise.resolve();
+function warmSounds(){
+  if(!audioEngine())return;
+  for(const path of warmSoundPaths){
+    const url=files?.url('sound/'+path);
+    if(url)soundWarmQueue=soundWarmQueue.then(()=>decodeSound(url)).catch(()=>{});
+  }
+}
 function sound(path,volume=.37){
   const url=files?.url('sound/'+path);
   if(!url)return;
+  const level=clamp(volume*sfxVolume,0,1);
+  if(!level)return;
+  const context=audioEngine();
+  const buffer=context&&soundBuffers.get(url);
+  if(buffer){
+    if(context.state==='suspended')context.resume().catch(()=>{});
+    const source=context.createBufferSource(),gain=context.createGain();
+    source.buffer=buffer;gain.gain.value=level;
+    source.connect(gain).connect(context.destination);
+    source.start();
+    return;
+  }
+  decodeSound(url);
   let template=soundTemplates.get(url);
   if(!template){template=new Audio(url);soundTemplates.set(url,template);}
   const audio=template.cloneNode?.()??new Audio(url);
-  audio.volume=clamp(volume*sfxVolume,0,1);
+  audio.volume=level;
   audio.play().catch(()=>{});
 }
 function prepare(skill){
@@ -793,6 +857,7 @@ $('play').onclick=async()=>{
   const nameTag=playerName();
   if(lanAccess&&!nameTag){updateStatus('Въведи име и избери герой.');$('player-name').focus();return;}
   busy=true;closeTitlePreview();$('play').disabled=true;loadingProgress(10,'Зареждам картата и моделите…');
+  resumeAudio();
   try{
     const name=lanAccess?'chuninfinals':$('map').value,id=$('character').value;
     $('hero-portrait').src=files.url('sprites/vgui/'+id+'.png')??'';
@@ -926,7 +991,7 @@ $('play').onclick=async()=>{
     $('battle-intro').hidden=!battleStarts;
     $('battle-ready').hidden=false;$('battle-go').hidden=true;
     refreshTech();updateHUD();updateStatus('Тренировъчен мач · F8 отваря менюто.');
-    loadingProgress(100);busy=false;resume();
+    loadingProgress(100);busy=false;resume();warmSounds();
   }catch(e){console.error(e);loadingProgress(100,e.message);busy=false;if(!world)startTitlePreview();}
   finally{$('play').disabled=false;}
 };
@@ -1075,34 +1140,35 @@ function jumpWithoutWall(back){
 }
 function move(entity,dx,dz,dt){
   if(entity.impulse){dx+=entity.impulse.x*dt;dz+=entity.impulse.z*dt;entity.impulse.multiplyScalar(Math.exp(-7*dt));}
-  const canStep=entity.ground||entity.waterWalk||entity.dy<=0&&world.solid(entity.pos.clone().add(new T.Vector3(0,-3,0)));
+  const canStep=entity.ground||entity.waterWalk||entity.dy<=0&&world.solid(probeA.copy(entity.pos).setY(entity.pos.y-3));
   if(!entity.wall&&!entity.waterWalk)entity.dy=world.water(entity.pos)?Math.max(-42,entity.dy-155*dt):Math.max(-950,entity.dy-780*dt);
   const amount=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dz),Math.abs(entity.dy*dt))/8));
   entity.ground=false;
   for(let i=0;i<amount;i++){
     let stepX=dx/amount,stepZ=dz/amount;
     if(world.traceSolid&&entity.wall&&entity.dy){
-      goal.copy(entity.pos).add(new T.Vector3(stepX,entity.dy*dt/amount,stepZ));
+      goal.copy(entity.pos);goal.x+=stepX;goal.y+=entity.dy*dt/amount;goal.z+=stepZ;
       if(!world.solid(goal)){entity.pos.copy(goal);continue;}
     }
     if(stepX&&stepZ){
       goal.copy(entity.pos);goal.x+=stepX;goal.z+=stepZ;
       if(!world.solid(goal)){entity.pos.copy(goal);stepX=stepZ=0;}
     }
-    for(const [axis,delta] of [['x',stepX],['z',stepZ],['y',entity.dy*dt/amount]]){
+    moveAxes[0][1]=stepX;moveAxes[1][1]=stepZ;moveAxes[2][1]=entity.dy*dt/amount;
+    for(const [axis,delta] of moveAxes){
       if(!delta)continue;
       goal.copy(entity.pos);goal[axis]+=delta;
       const hitRoof=axis==='y'&&delta>0&&world.roofDistance?.(
-        entity.pos.clone().add(new T.Vector3(0,27,0)),goal.clone().add(new T.Vector3(0,27,0)))<Infinity;
+        probeA.copy(entity.pos).setY(entity.pos.y+27),probeB.copy(goal).setY(goal.y+27))<Infinity;
       if(!world.solid(goal)&&!hitRoof)entity.pos.copy(goal);
       else if(axis==='y'){entity.ground=delta<0;entity.dy=0;if(entity.ground)entity.airJump=false;}
       else if(!entity.wall&&canStep&&entity.dy<=0){
-        for(const height of [4,8,12,18]){
-          const raised=entity.pos.clone().add(new T.Vector3(0,height,0));
+        for(const height of stepHeights){
+          const raised=raisedProbe.copy(entity.pos).setY(entity.pos.y+height);
           goal.y=raised.y;
           if(world.solid(raised)||world.roofDistance?.(entity.pos,raised)<Infinity)break;
           if(world.solid(goal))continue;
-          const landing=goal.clone();
+          const landing=landingProbe.copy(goal);
           for(let step=0;step<height;step++){
             landing.y-=1;
             if(world.solid(landing)){landing.y+=1;break;}
@@ -1180,7 +1246,10 @@ function snapshotVisuals(source,target){
   target.length=source.length;
   for(let i=0;i<source.length;i++)target[i]=source[i];
 }
-const visuals=new Pools({maxLive:40,maxPerFrame:8,limits:{clone:4,shot:12,wave:6}});
+// Large additive sprites are the dominant GPU cost on a phone, so cap how many
+// can overlap at once there.
+const visuals=touch?new Pools({maxLive:28,maxPerFrame:6,limits:{clone:4,shot:10,wave:4}})
+  :new Pools({maxLive:40,maxPerFrame:8,limits:{clone:4,shot:12,wave:6}});
 const waveNames=new Set(['rasenShockwave','ripple']);
 const effectKey=name=>'effect:'+name;
 function hidePooled(item,list){
@@ -1303,6 +1372,7 @@ function buildVisualPools(){
   for(const kind of ['bolt','fire','volley','rasenshuriken',...weapons.map(weapon=>weapon.id)])registerShot(kind);
   preparePersistentVisuals();
   const meshes=[...focusSprites];
+  if(chargeHelper)meshes.push(chargeHelper.root);
   if(oriokeVisual){meshes.push(oriokeVisual.body);if(oriokeVisual.cloud)meshes.push(oriokeVisual.cloud);}
   for(const pool of visuals.pools.values())for(const item of pool.items){
     for(const mesh of [item.mesh??(item.isObject3D?item:null),item.trail]){
@@ -1321,8 +1391,33 @@ function buildVisualPools(){
     });
   }
   warmTechniqueTexture(weaponTrailMap);
-  try{renderer.compile?.(scene,camera);}
+  try{renderer.compile?.(scene,camera);warmDraw(meshes);}
   finally{for(const mesh of meshes)mesh.visible=false;}
+}
+// renderer.compile() links the programs, but WebKit only translates and uploads a
+// shader the first time it is actually drawn, so the first Rasengan still stalls.
+// Draw the pooled objects once into a tiny offscreen target to pay that cost here.
+function warmDraw(meshes){
+  if(!renderer.render||!T.WebGLRenderTarget)return;
+  const restore=[];
+  for(const mesh of meshes)mesh.traverse(node=>{
+    if(node.isMesh||node.isSprite||node.isPoints||node.isLine){
+      restore.push([node,node.frustumCulled]);
+      node.frustumCulled=false;
+    }
+  });
+  const previousTarget=renderer.getRenderTarget?.()??null;
+  let target;
+  try{
+    target=new T.WebGLRenderTarget(64,64);
+    renderer.setRenderTarget(target);
+    renderer.render(scene,camera);
+  }catch(error){console.warn('NNK warm draw',error.message);}
+  finally{
+    renderer.setRenderTarget(previousTarget);
+    target?.dispose();
+    for(const [node,value] of restore)node.frustumCulled=value;
+  }
 }
 function damage(bot,n,source=player,hits=1){
   if(bot.dead)return;

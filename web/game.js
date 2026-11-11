@@ -594,25 +594,46 @@ function decodeSound(url){
   return request;
 }
 // Decoding a .wav inside sound() stalls the main thread on iOS Safari, which is
-// exactly when a jutsu fires. Decode these up front, once the arena is running.
-const warmSoundPaths=[
-  'jutsu/Jutsu_Enabled.wav','jutsu/Rasengan_Charge.wav','jutsu/Rasengan_Ready.wav','jutsu/Rasengan_Spin.wav',
-  'jutsu/Rasengan_Hit.wav','jutsu/Chidori_Hit.wav','jutsu/Chidori_Loop.wav','jutsu/Gouk_Shoot.wav',
-  'jutsu/Hous_Shoot.wav','jutsu/Heal_Loop.wav','jutsu/Orioke.wav','jutsu/Power_Punch.wav','jutsu/Power_Kick.wav',
-  'jutsu/Kagebunshin_Spawn.wav','jutsu/Pakkun_Spawn.wav','jutsu/Kawarimi_Drop.wav','player/naruto/Rasengan.wav',
-  'taijutsu/Hit_1.wav','taijutsu/Miss_1.wav','taijutsu/Block_1.wav','misc/Focus_Chakra.wav',
-  'movement/Dash.wav','movement/Dodge.wav','movement/Jump.wav','movement/Jump_Spin.wav','movement/Wall_Jump.wav',
-  'movement/Backflip.wav','movement/Backflip_End.wav','weapons/Kunai_Throw.wav','weapons/Shuriken_Throw.wav',
-  'weapons/Metal_Clash1.wav','weapons/Explosion.wav'];
-// One at a time: firing every request at once starves the map and model loads of
-// connections, which stalls the loading screen.
-let soundWarmQueue=Promise.resolve();
+// exactly when a jutsu fires. Decode everything a match can play up front.
+function warmSoundPaths(){
+  const paths=[
+    'jutsu/Jutsu_Enabled.wav','jutsu/Rasengan_Charge.wav','jutsu/Rasengan_Ready.wav','jutsu/Rasengan_Spin.wav',
+    'jutsu/Rasengan_Hit.wav','jutsu/Chidori_Hit.wav','jutsu/Chidori_Loop.wav','jutsu/Gouk_Shoot.wav',
+    'jutsu/Hous_Shoot.wav','jutsu/Heal_Loop.wav','jutsu/Orioke.wav','jutsu/Power_Punch.wav','jutsu/Power_Kick.wav',
+    'jutsu/Kagebunshin_Spawn.wav','jutsu/Pakkun_Spawn.wav','jutsu/Kawarimi_Drop.wav','player/naruto/Rasengan.wav',
+    'taijutsu/Hit_1.wav','taijutsu/Miss_1.wav','taijutsu/Block_1.wav','misc/Focus_Chakra.wav',
+    'movement/Dash.wav','movement/Dodge.wav','movement/Jump.wav','movement/Jump_Spin.wav','movement/Wall_Jump.wav',
+    'movement/Backflip.wav','movement/Backflip_End.wav','weapons/Kunai_Throw.wav','weapons/Shuriken_Throw.wav',
+    'weapons/Kunai_Hit.wav','weapons/Shuriken_Hit.wav','weapons/Metal_Clash1.wav','weapons/Explosion.wav',
+    'weapons/Exploding_Tag.wav','weapons/Smokebomb_Throw.wav','weapons/Smokebomb_Setoff.wav'];
+  // Footsteps fire every .31s and seals on every combo key, so they matter most.
+  for(let i=1;i<=4;i++)paths.push('movement/Footstep'+i+'.wav','movement/Footstep_Water'+i+'.wav');
+  for(let i=1;i<=5;i++)paths.push('jutsu/Seal_'+i+'.wav');
+  for(const id of new Set([player?.id,...botList.map(bot=>bot.id)]))if(id)paths.push('player/'+id+'/Kagebunshin.wav');
+  return paths;
+}
+// Three at a time: firing every request at once starves other loads of connections.
+const soundWarmLanes=[Promise.resolve(),Promise.resolve(),Promise.resolve()];
 function warmSounds(){
   if(!audioEngine())return;
-  for(const path of warmSoundPaths){
+  warmSoundPaths().forEach((path,index)=>{
     const url=files?.url('sound/'+path);
-    if(url)soundWarmQueue=soundWarmQueue.then(()=>decodeSound(url)).catch(()=>{});
-  }
+    if(!url)return;
+    const lane=index%soundWarmLanes.length;
+    soundWarmLanes[lane]=soundWarmLanes[lane].then(()=>decodeSound(url)).catch(()=>{});
+  });
+}
+// Safari caps how many media elements a page may hold, and cloning a fresh one per
+// play eventually silences everything. Keep at most three per clip.
+function playElement(url,level){
+  let pool=soundTemplates.get(url);
+  if(!pool){pool=[new Audio(url)];soundTemplates.set(url,pool);}
+  let audio=pool.find(element=>element.paused||element.ended);
+  if(!audio&&pool.length<3){audio=pool[0].cloneNode();pool.push(audio);}
+  audio??=pool[0];
+  audio.volume=level;
+  try{audio.currentTime=0;}catch{}
+  audio.play().catch(()=>{});
 }
 function sound(path,volume=.37){
   const url=files?.url('sound/'+path);
@@ -620,22 +641,24 @@ function sound(path,volume=.37){
   const level=clamp(volume*sfxVolume,0,1);
   if(!level)return;
   const context=audioEngine();
-  const buffer=context&&soundBuffers.get(url);
-  if(buffer){
-    if(context.state==='suspended')context.resume().catch(()=>{});
-    const source=context.createBufferSource(),gain=context.createGain();
-    source.buffer=buffer;gain.gain.value=level;
-    source.connect(gain).connect(context.destination);
-    source.start();
-    return;
+  if(context){
+    // A source started on a suspended context is simply lost, so only take this
+    // path once the context is actually running.
+    const buffer=soundBuffers.get(url);
+    if(buffer&&context.state==='running'){
+      const source=context.createBufferSource(),gain=context.createGain();
+      source.buffer=buffer;gain.gain.value=level;
+      source.connect(gain).connect(context.destination);
+      source.start();
+      return;
+    }
+    resumeAudio();decodeSound(url);
   }
-  decodeSound(url);
-  let template=soundTemplates.get(url);
-  if(!template){template=new Audio(url);soundTemplates.set(url,template);}
-  const audio=template.cloneNode?.()??new Audio(url);
-  audio.volume=level;
-  audio.play().catch(()=>{});
+  playElement(url,level);
 }
+// iOS suspends the context when the page goes to the background or a call comes in.
+addEventListener('visibilitychange',()=>{if(!document.hidden)resumeAudio();});
+addEventListener('pointerdown',resumeAudio,{passive:true});
 function prepare(skill){
   prepared=skill;sound('jutsu/Jutsu_Enabled.wav');message(touch?skill[0]:skill[0]+' · ляв бутон или Enter');
 }
@@ -1246,10 +1269,7 @@ function snapshotVisuals(source,target){
   target.length=source.length;
   for(let i=0;i<source.length;i++)target[i]=source[i];
 }
-// Large additive sprites are the dominant GPU cost on a phone, so cap how many
-// can overlap at once there.
-const visuals=touch?new Pools({maxLive:28,maxPerFrame:6,limits:{clone:4,shot:10,wave:4}})
-  :new Pools({maxLive:40,maxPerFrame:8,limits:{clone:4,shot:12,wave:6}});
+const visuals=new Pools({maxLive:40,maxPerFrame:8,limits:{clone:4,shot:12,wave:6}});
 const waveNames=new Set(['rasenShockwave','ripple']);
 const effectKey=name=>'effect:'+name;
 function hidePooled(item,list){
@@ -2572,9 +2592,12 @@ function update(dt,measure=false){
     }
     if(!visuals.live.has(ally))continue;
     const distance=ally.pos.distanceToSquared(player.pos);
-    ally.mesh.visible=distance<=80**2;
+    // Clones chase targets up to 560 units away, so hiding them past 80 made them
+    // vanish mid-fight. Keep them drawn and throttle the animation by distance,
+    // the way LAN peers are handled.
+    ally.mesh.visible=true;
     ally.animDt+=dt;
-    if(ally.mesh.visible&&(distance<=40**2||ally.animDt>=.05)){
+    if(distance<=120**2||ally.animDt>=.05){
       animate(ally,moving?'run':'idle',ally.animDt);
       ally.animDt=0;
     }

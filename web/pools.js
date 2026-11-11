@@ -24,8 +24,13 @@ export class Pools {
     if (!pool.free.length) this.recycle(entry => entry === pool);
     const limit = this.limits[pool.group];
     if (limit && this.count(pool.group) >= limit) this.recycle(entry => entry.group === pool.group);
-    if (this.live.size >= this.maxLive) this.recycle(() => true);
+    // Give up a short-lived effect before a clone, summon or projectile: those
+    // are gameplay objects, and recycling one makes it vanish mid-life.
+    if (this.live.size >= this.maxLive && !this.recycle(entry => entry.group === undefined)) {
+      this.recycle(() => true);
+    }
     const item = pool.free.pop();
+    if (!item) return null;
     this.live.set(item, pool);
     this.acquisitions++;
     return item;
@@ -41,9 +46,10 @@ export class Pools {
     for (const [item, pool] of this.live) {
       if (matches(pool)) {
         this.recycleItem(item, pool);
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   release(key, item) {

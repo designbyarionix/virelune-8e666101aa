@@ -3,7 +3,7 @@
 #menu{position:fixed;inset:0;display:grid;align-items:center;overflow:auto;padding:clamp(20px,6vw,100px);background:linear-gradient(90deg,#121713ef,#171e19b5 53%,#171e1933),radial-gradient(ellipse at 85% 25%,#77704399,transparent 52%)}[hidden]{display:none!important}
 .panel{width:min(100%,570px);padding:clamp(22px,4vw,46px);border:1px solid #fbd69938;border-left:3px solid #f1ad52;background:#1d241edb;box-shadow:0 25px 100px #080b08aa}
 .eyebrow,.version,footer,.hint{font-size:.72rem;letter-spacing:.13em}.eyebrow{font-weight:800;letter-spacing:.19em;color:#ffc575}.eyebrow span{display:inline-block;width:8px;height:8px;transform:rotate(45deg);background:#ffaf49;margin:0 9px 1px 0}.version{color:#bdb39f;margin-top:24px}h1{font-size:clamp(2.45rem,6vw,4.5rem);line-height:.94;letter-spacing:-.06em;margin:12px 0 18px}em{color:#ffaf49;font-style:normal}#status{color:#d8ceba;min-height:2em;font-size:.95rem}.settings{display:grid;grid-template-columns:1fr 1.35fr .62fr;gap:10px;margin:18px 0}.settings label{font-size:.73rem;color:#d6c4a5;display:grid;gap:6px}select,button,.file{border:1px solid #dbc99f45;border-radius:3px;padding:11px;background:#30382f;color:#fff3dc;font:inherit}button,.file{cursor:pointer}button:hover,.file:hover{filter:brightness(1.18)}button:disabled{opacity:.48;cursor:default}#play{background:#f1ac50;color:#24190e;font-weight:800;flex:1;display:flex;justify-content:space-between;gap:14px}.actions{display:flex;gap:9px;flex-wrap:wrap}.file{font-size:.85rem;display:grid;place-items:center}.file input{position:absolute;width:1px;height:1px;opacity:0}.file:focus-within{outline:2px solid #ffc575}footer{margin-top:20px;color:#a7aa97;letter-spacing:.03em}#training{margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}#training button{font-size:.8rem}#techniques{width:100%;display:flex;flex-wrap:wrap;gap:6px}#hud{position:fixed;inset:0;pointer-events:none;text-shadow:0 2px 4px #000}.hint{color:#e1d8c4}#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-weight:bold;font-size:1.3rem}#notice{position:absolute;bottom:24%;left:50%;transform:translateX(-50%);text-align:center;font-weight:700;color:#ffe4ae}.hint{position:absolute;bottom:8px;left:24px;right:15px;line-height:1.4}
-#weapon{position:absolute;right:22px;bottom:52px;color:#fff3d4;font-size:.9rem}#target{position:absolute;top:14%;left:50%;transform:translateX(-50%);background:#1e211fd9;border-bottom:2px solid #efaf58;padding:5px 18px;font-size:.8rem}#crosshair img{display:block;width:30px;height:30px;object-fit:contain}
+#target{position:absolute;top:14%;left:50%;transform:translateX(-50%);background:#1e211fd9;border-bottom:2px solid #efaf58;padding:5px 18px;font-size:.8rem}#crosshair img{display:block;width:30px;height:30px;object-fit:contain}
 .settings{grid-template-columns:repeat(2,minmax(0,1fr))}#scoreboard{position:absolute;top:15%;left:50%;transform:translateX(-50%);width:min(90vw,360px);padding:17px 20px;background:#171c18ea;border-left:3px solid #ffaf49}#scoreboard ol{margin:8px 0 0;padding-left:25px}#scoreboard li{padding:5px 0;border-bottom:1px solid #ffffff22}
 #crosshair{width:19px;height:19px;border:1px solid #fff9e4bb;border-radius:50%;box-shadow:0 0 2px #000, inset 0 0 2px #000;background:transparent}#crosshair::before,#crosshair::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff9e4;box-shadow:0 0 2px #000}#crosshair::before{width:7px;height:1px}#crosshair::after{width:1px;height:7px}
 
@@ -99,7 +99,7 @@
 
 #game canvas,#touch-controls{touch-action:none}
 #touch-controls{position:fixed;inset:0;pointer-events:none;user-select:none;--edge:max(16px,env(safe-area-inset-right));--bottom:max(14px,env(safe-area-inset-bottom));--action:clamp(45px,12.2dvh,110px);--gap:clamp(5px,1.15dvh,14px)}
-.touch-hud .hint,.touch-hud #weapon{display:none}
+.touch-hud .hint{display:none}
 .shinobi-round,#touch-techniques button,.touch-extra summary{position:relative;pointer-events:auto;touch-action:none;display:grid;place-items:center;width:var(--action);aspect-ratio:1;min-width:0;padding:0;border:2px solid #d9a167;border-top-color:#fff1bd;border-radius:50%;color:#fff0d2;background:radial-gradient(circle at 42% 28%,#3d332b,#110d0cf7 72%);box-shadow:inset 0 0 0 2px #22130d,0 3px 6px #000a}
 .shinobi-round svg,.touch-extra svg{width:55%;height:55%;pointer-events:none;filter:drop-shadow(0 2px 2px #000)}
 .shinobi-round span,#touch-techniques span:not(.touch-technique-glyph){position:absolute;z-index:1;bottom:-5%;max-width:110%;text-align:center;font-size:clamp(8px,2dvh,17px);line-height:1.02;font-weight:750;color:#fff8e8;text-shadow:0 2px 2px #000,1px 0 #000,-1px 0 #000;pointer-events:none}
@@ -174,3 +174,20 @@
 #combat-feedback img{height:clamp(38px,9vh,100px)}
 #menu.paused-game:has(#title-progress:not([hidden])) .title-stage{display:grid;position:absolute;inset:0;pointer-events:none;background:#170e0dcc}
 #menu.paused-game:has(#title-progress:not([hidden])) :is(.title-copy,#title-roster,.roster-navigation){visibility:hidden}
+
+.weapon-hud {
+  position: relative;
+  width: clamp(68px, 13dvh, 124px);
+  aspect-ratio: 11 / 7;
+  margin: 2px 0 0 .45em;
+}
+.weapon-hud img { position: absolute; inset: 0; width: 100%; height: 100%; }
+#weapon-ammo-unlimited {
+  position: absolute;
+  left: 5%; top: 24%; width: 36%;
+  text-align: center;
+  color: #fff;
+  font: 900 clamp(.9rem, 2.65dvh, 1.55rem)/1 Georgia, serif;
+  text-shadow: 1px 1px 2px #090a0b, -1px -1px 2px #090a0b;
+}
+.touch-hud .weapon-hud { width: clamp(52px, 13dvh, 79px); }

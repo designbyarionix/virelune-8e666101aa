@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>NNK Web · Training Arena</title><link rel="stylesheet" href="style.css?v=41"><link rel="stylesheet" href="arena-ui.css?v=41">
+<title>NNK Web · Training Arena</title><link rel="stylesheet" href="style.css?v=42"><link rel="stylesheet" href="arena-ui.css?v=42">
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
 </head>
 <body>
@@ -14,13 +14,20 @@
     <header><strong id="hero"></strong></header>
     <div class="shinobi-meter health"><progress id="hp" max="100" value="100" aria-label="Health"></progress><output id="hp-value"></output></div>
     <div class="shinobi-meter chakra"><progress id="chakra" max="10000" value="10000" aria-label="Chakra"></progress><output id="chakra-value"></output></div>
+    <div id="weapon" class="weapon-hud" role="img" aria-label="Kunai, 12 remaining">
+      <img src="assets/ui/weapon-hud/base.png" alt="">
+      <img id="weapon-hud-icon" src="assets/ui/weapon-hud/icon_kunai.png" alt="">
+      <img id="weapon-ammo-left" alt="" hidden>
+      <img id="weapon-ammo-right" alt="" hidden>
+      <span id="weapon-ammo-unlimited" aria-hidden="true" hidden>∞</span>
+    </div>
   </div>
 </section>
 <section class="shinobi-radar" aria-label="Minimap">
   <div class="radar-dial"><div class="radar-viewport"><canvas id="radar-map" width="192" height="192"></canvas><span id="radar-arrow" aria-hidden="true">▲</span></div><span class="radar-north">N</span>
   <div class="radar-zoom"><button id="radar-in" type="button" aria-label="Zoom in on the minimap">+</button><button id="radar-out" type="button" aria-label="Zoom out on the minimap">−</button></div></div>
   <div class="radar-caption"><strong id="arena"></strong><small id="radar-coordinates"></small><small id="score"></small></div>
-</section><span id="crosshair" aria-hidden="true"></span><div id="weapon"></div><section id="scoreboard" hidden><strong>Scoreboard</strong><ol></ol></section><div id="target" hidden></div><div id="battle-intro" hidden role="status"><span id="battle-ready">Ready?</span><img id="battle-go" src="storm/battle-start.webp" alt="Fight begins" hidden></div>
+</section><span id="crosshair" aria-hidden="true"></span><section id="scoreboard" hidden><strong>Scoreboard</strong><ol></ol></section><div id="target" hidden></div><div id="battle-intro" hidden role="status"><span id="battle-ready">Ready?</span><img id="battle-go" src="storm/battle-start.webp" alt="Fight begins" hidden></div>
 <aside id="jutsu-cut-in" hidden aria-hidden="true">
   <div class="cut-in-portrait"><img id="cut-in-image" alt=""></div>
   <div class="cut-in-caption"><span id="cut-in-hero"></span><strong id="cut-in-name"></strong></div>
@@ -215,7 +222,7 @@
     button.disabled = true;
     roomStatus.textContent = 'Joining room ' + roomCode.value + '…';
     try {
-      const {joinPrivateRoom} = await import('./game.js?v=41');
+      const {joinPrivateRoom} = await import('./game.js?v=42');
       await joinPrivateRoom(name, roomCode.value);
       lobby.close();
     } catch (error) {
@@ -245,7 +252,7 @@
   } else {
     const original = status.textContent;
     status.textContent = 'Loading the game…';
-    import('./game.js?v=41').then(() => {
+    import('./game.js?v=42').then(() => {
       if (status.textContent === 'Loading the game…') status.textContent = original;
     }).catch(error => {
       console.error(error);

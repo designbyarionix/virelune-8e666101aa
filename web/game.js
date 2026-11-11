@@ -711,6 +711,23 @@ function botSpawn(){
     return value(b)-value(a);
   })[0];
 }
+const weaponHudPath='assets/ui/weapon-hud/';
+let lastWeaponHudIcon,lastWeaponHudAmmo;
+function updateWeaponHUD(weapon,ammo){
+  if(lastWeaponHudIcon===weapon.icon&&lastWeaponHudAmmo===ammo)return;
+  if(lastWeaponHudIcon!==weapon.icon)$('weapon-hud-icon').src=weaponHudPath+weapon.icon.toLowerCase()+'.png';
+  const left=$('weapon-ammo-left'),right=$('weapon-ammo-right');
+  $('weapon-ammo-unlimited').hidden=ammo!==null;
+  left.hidden=ammo===null||ammo<10;
+  right.hidden=ammo===null;
+  if(!left.hidden)left.src=weaponHudPath+'ammo_l'+Math.floor(ammo/10)+'.png';
+  if(!right.hidden)right.src=weaponHudPath+'ammo_r'+ammo%10+'.png';
+  const label=weapon.label+', '+(ammo===null?'unlimited ammo':ammo+' remaining');
+  $('weapon').setAttribute('aria-label',label);
+  $('weapon').title=label;
+  lastWeaponHudIcon=weapon.icon;
+  lastWeaponHudAmmo=ammo;
+}
 const scoreRows=[];
 function updateHUD(){
   $('hero').textContent=player.name??heroes[player.id].label;
@@ -731,7 +748,7 @@ function updateHUD(){
     $('radar-coordinates').textContent='('+Math.round(player.pos.x)+', '+Math.round(player.pos.z)+')';
   }
   const weapon=weapons[weaponIndex];
-  $('weapon').textContent=weapon.label+' · '+(unlimited()?'∞':player.ammo[weaponIndex])+'  [E]';
+  updateWeaponHUD(weapon,unlimited()?null:player.ammo[weaponIndex]);
   $('touch-weapon-label').textContent=weapon.label;
   $('target').hidden=!locked||!!locked.dead;
   if(locked&&!locked.dead)$('target').textContent=heroes[locked.id].label+' · '+Math.ceil(locked.hp)+' HP';

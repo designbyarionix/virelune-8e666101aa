@@ -61,20 +61,40 @@ function mip(d,p){
   if(!start||!last||w<1||h<1)return null;
   return rgbaTexture(d,p+start,p+last+(w>>3)*(h>>3)+2,w,h,str(d,p,16).startsWith('{'));
 }
-async function wadTextures(files){
+// A map references a few dozen of the 204 textures in narutowad.wad, so
+// tools/trim-map-wads.mjs writes a maps/<root>.wad holding just those. Use it
+// when it covers every texture the map asks for, otherwise read the full
+// archives — the player's own NNK folder has no trimmed copies either.
+async function wadTextures(files,root,needed){
   const result=new Map();
-  await Promise.all(['narutowad.wad','nnk_rooftop.wad'].map(async path=>{
+  const read=async path=>{
     try{
       const d=view(await files.bytes(path));
-      if(str(d,0,4)!=='WAD3')return;
+      if(str(d,0,4)!=='WAD3')return false;
       const end=int(d,4), dir=int(d,8);
       for(let i=0;i<end;i++){
         const p=dir+i*32;
         if(d.getUint8(p+12)===67&&!d.getUint8(p+13))result.set(str(d,p+16,16).toLowerCase(),[d,int(d,p)]);
       }
-    }catch(e){console.warn('WAD',path,e.message);}
+      return true;
+    }catch(e){return e.message;}
+  };
+  if(root&&await read('maps/'+root+'.wad')===true&&needed.every(name=>result.has(name)))return result;
+  await Promise.all(['narutowad.wad','nnk_rooftop.wad'].map(async path=>{
+    const outcome=await read(path);
+    if(outcome!==true)console.warn('WAD',path,outcome||'не е WAD3');
   }));
   return result;
+}
+// Textures whose first mip offset is zero live in a WAD rather than in the map.
+function externalTextures(tex){
+  const names=[],count=int(tex,0);
+  for(let i=0;i<count;i++){
+    const off=int(tex,4+i*4);
+    if(off<0||off+28>tex.byteLength)continue;
+    if(int(tex,off+24)===0)names.push(str(tex,off,16).toLowerCase());
+  }
+  return names;
 }
 function geometry(vertices,uvs,normals){
   const g=new T.BufferGeometry();
@@ -102,7 +122,7 @@ export async function loadMap(files,name){
   if(int(d,0)!==30)throw Error('Невалиден GoldSrc BSP.');
   const l=Array.from({length:15},(_,i)=>new DataView(d.buffer,int(d,4+i*8),int(d,8+i*8)));
   const tex=l[2],texInfo=l[6],faces=l[7],light=l[8],edges=l[12],surf=l[13],verts=l[3];
-  const groups=new Map(),group=new T.Group(),wad=await wadTextures(files);
+  const groups=new Map(),group=new T.Group(),wad=await wadTextures(files,root,externalTextures(tex));
   const isLair=name==='kyuubilair',seal=isLair?{elapsed:0,opening:false,open:false}:null;
   const gateModel=4*64;
   const gateFaces=isLair?[int(l[14],gateModel+56),int(l[14],gateModel+60)]:null;

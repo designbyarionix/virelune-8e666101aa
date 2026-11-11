@@ -7,11 +7,11 @@ import {maps,loadMap,loadCharacter,loadWeaponModel,loadPakkun,loadKawarimiLog,lo
 
 const $=id=>document.getElementById(id);
 const heroes={
-  naruto:{label:'Naruto',color:0xffa034,skills:{DSW:['Rasengan',30,'rush'],WS:['Kage Bunshin',35,'clone'],DW:['Orioke',20,'stun'],ADW:['Rasenshuriken',35,'rasenshuriken'],SWD:['Shinobi Handbook',40,'handbook']}},
-  sasuke:{label:'Sasuke',color:0xc692ff,skills:{ADS:['Katon Goukakyuu',30,'fire'],SDA:['Katon Housenka',20,'volley'],WSD:['Chidori',30,'rush'],DAW:['Chidori Nagashi',40,'ougi']}},
-  kakashi:{label:'Kakashi',color:0x91b9ff,skills:{DW:['Kuchiyose',25,'summon'],WS:['Kage Bunshin',35,'clone'],WSD:['Raikiri',30,'rush'],SAD:['Raikiri Rendan',40,'ougi']}},
-  sakura:{label:'Sakura',color:0xff8bb5,skills:{DSW:['Chakra Concentration',15,'boost'],WS:['Healing Jutsu',22,'heal'],SA:['Bunshin',20,'clone'],ADS:['Shannaro',40,'ougi']}},
-  anbu:{label:'ANBU',color:0xd1dbdd,skills:{ADS:['Katon',30,'fire'],DW:['Shunshin',25,'rush'],SWA:['Katon Gouryuuka',40,'ougi']}}
+  naruto:{label:'Naruto',color:0xffa034,skills:{DSW:['Rasengan',30,'rush'],WS:['Kage Bunshin',35,'clone'],DW:['Orioke',20,'stun'],ADW:['Rasenshuriken',35,'rasenshuriken'],SWD:['Shinobi Handbook',40,'handbook'],WAD:['Пробуждане',0,'awaken']}},
+  sasuke:{label:'Sasuke',color:0xc692ff,skills:{ADS:['Katon Goukakyuu',30,'fire'],SDA:['Katon Housenka',20,'volley'],WSD:['Chidori',30,'rush'],DAW:['Chidori Nagashi',40,'ougi'],WAD:['Пробуждане',0,'awaken']}},
+  kakashi:{label:'Kakashi',color:0x91b9ff,skills:{DW:['Kuchiyose',25,'summon'],WS:['Kage Bunshin',35,'clone'],WSD:['Raikiri',30,'rush'],SAD:['Raikiri Rendan',40,'ougi'],WAD:['Пробуждане',0,'awaken']}},
+  sakura:{label:'Sakura',color:0xff8bb5,skills:{DSW:['Chakra Concentration',15,'boost'],WS:['Healing Jutsu',22,'heal'],SA:['Bunshin',20,'clone'],ADS:['Shannaro',40,'ougi'],WAD:['Пробуждане',0,'awaken']}},
+  anbu:{label:'ANBU',color:0xd1dbdd,skills:{ADS:['Katon',30,'fire'],DW:['Shunshin',25,'rush'],SWA:['Katon Gouryuuka',40,'ougi'],WAD:['Пробуждане',0,'awaken']}}
 };
 const names={academy:'Academy',monument:'Monument',chuninfinals:'Chunin Finals',chuninfinals_dusk:'Chunin Finals · Dusk',kyuubilair:'Kyuubi Lair',monument_night:'Monument · Night',preliminary:'Preliminary',voltage_courtyard:'Voltage · Двор',voltage_fortress:'Voltage · Крепост',voltage_village:'Voltage · Село Коноха',voltage_market:'Voltage · Пазарът на Коноха',storm_river:'Storm 2 · Речна арена',storm_forest:'Storm 2 · Горска арена',storm_sand:'Storm 2 · Пясъчна арена'};
 const weapons=[
@@ -81,7 +81,7 @@ addEventListener('resize',resize);resize();
 
 let files,world,actors,player,score=0,paused=true,busy=false,noticeUntil=0,now=0;
 let botList=[],effects=[],shots=[],allies=[],models=new Map();
-let handbook=null,handbookClones=[];
+let handbook=null,handbookClones=[],awaken=null;
 let kawarimiLog=null,substitutionLogs=[];
 let rasenganChargeModel=null,pendingThrow=null;
 let focusSprites=[],oriokeVisual=null;
@@ -760,7 +760,8 @@ function refreshTouchTechniques(skills){
     const button=document.createElement('button');
     button.type='button';button.title=skill[0];button.setAttribute('aria-label',skill[0]);
     // Ultimates share one mark rather than each needing art drawn for it.
-    const glyph=skill[2]==='ougi'?'奥':{Orioke:'変',Shunshin:'ϟ',Rasenshuriken:'✦'}[skill[0]];
+    const glyph=skill[2]==='ougi'||skill[2]==='handbook'?'奥':skill[2]==='awaken'?'覚':
+      {Orioke:'変',Shunshin:'ϟ',Rasenshuriken:'✦'}[skill[0]];
     const icon=document.createElement(glyph?'span':'img');
     if(glyph){
       icon.className='touch-technique-glyph';icon.textContent=glyph;icon.setAttribute('aria-hidden','true');
@@ -1061,7 +1062,7 @@ $('play').onclick=async()=>{
     radar=makeRadar(renderer,scene,$('radar-map'),world);
     actors=new T.Group();scene.add(actors);actors.add(root);
     player={id,name:join?sessionName:null,root,pos:new T.Vector3(),hp:100,team:0,kills:0,deaths:0,chakra:maxChakra,stamina:100,staminaUsed:-100,ammo:weapons.map(w=>w.ammo),dy:0,ground:false};
-    botList=[];effects=[];shots=[];allies=[];handbook=null;handbookClones=[];orioke=null;score=0;prepared=null;attackUntil=0;focusMode=false;charged=null;heavy=null;healing=null;locked=null;chain=0;lastHit=0;secondaryUntil=0;lastStride=0;
+    botList=[];effects=[];shots=[];allies=[];handbook=null;handbookClones=[];awaken=null;orioke=null;score=0;prepared=null;attackUntil=0;focusMode=false;charged=null;heavy=null;healing=null;locked=null;chain=0;lastHit=0;secondaryUntil=0;lastStride=0;
     substitutionLogs=[];pendingThrow=null;focusSprites=[];$('bot-names').replaceChildren();
     player.spawn=join?join.slot%(world.spawns.filter(s=>s.combat).length||world.spawns.length):initialSpawn();
     spawn(player,player.spawn);yaw=T.MathUtils.degToRad(world.spawns[player.spawn].angle);pitch=-.17;cameraDistance=cameraZoom;
@@ -1541,6 +1542,7 @@ function warmDraw(meshes){
 }
 function damage(bot,n,source=player,hits=1){
   if(bot.dead)return;
+  if(awaken&&source===player&&n>0)n*=1.5;
   if(source===player&&n>0)showCombatFeedback(hits);
   if(bot.kind){
     bot.hp-=n;
@@ -1980,6 +1982,57 @@ function attack(secondary){
 // running wave, then he comes through the line for the finish. The models carry no
 // animation for holding another character, so the chain is made of placement and
 // timing rather than contact.
+const awakenThreshold=45,awakenTime=14;
+// No awakened model exists for these characters, so the form is the hero's own
+// colour burning through the skin plus an aura, rather than a model swap. The
+// materials are shared with the bots and the clones, so clone them first and put
+// the originals back when it ends.
+function setAwakenGlow(on){
+  player.root.traverse(mesh=>{
+    if(!mesh.isSkinnedMesh)return;
+    if(on){
+      if(mesh.userData.plainMaterial)return;
+      mesh.userData.plainMaterial=mesh.material;
+      mesh.material=mesh.material.clone();
+    }else if(mesh.userData.plainMaterial){
+      mesh.material.dispose();
+      mesh.material=mesh.userData.plainMaterial;
+      mesh.userData.plainMaterial=null;
+    }
+  });
+}
+function startAwaken(){
+  awaken={until:now+awakenTime,color:heroes[player.id].color,sparkAt:0};
+  setAwakenGlow(true);
+  player.stamina=100;
+  sound('misc/Focus_Chakra.wav',.6);
+  visual(player.pos,awaken.color,48,.9,'boost');
+  visual(player.pos,awaken.color,34,.8,'chakraGlow');
+  cinematicUntil=Math.max(cinematicUntil,now+.8);
+}
+function endAwaken(){
+  if(!awaken)return;
+  visual(player.pos,awaken.color,30,.6,'poof');
+  awaken=null;
+  setAwakenGlow(false);
+  message('Пробуждането свърши');
+}
+function updateAwaken(dt){
+  if(now>=awaken.until){endAwaken();return;}
+  const pulse=.34+.2*Math.sin(now*7);
+  player.root.traverse(mesh=>{
+    if(!mesh.isSkinnedMesh||!mesh.userData.plainMaterial)return;
+    mesh.material.emissive.setHex(awaken.color);
+    mesh.material.emissiveIntensity=pulse;
+  });
+  if(now>=awaken.sparkAt){
+    awaken.sparkAt=now+.15;
+    visual(player.pos.clone().add(new T.Vector3(rand(-15,15),rand(4,48),rand(-15,15))),
+      awaken.color,13,.42,'chakraGlow');
+  }
+  player.chakra=Math.min(maxChakra,player.chakra+dt*850);
+  player.stamina=Math.min(100,player.stamina+dt*16);
+}
 function startHandbook(target){
   releaseHandbook();
   const toward=target.pos.clone().sub(player.pos).setY(0);
@@ -2059,7 +2112,7 @@ function cast(skill,charge=0,secondary=false){
     heal:rules.sv_healing_chakra_consumption,stun:rules.sv_orioke_chakra_consumption,
     boost:secondary?rules.sv_focus_strength_kick_chakra_consumption:rules.sv_focus_strength_punch_chakra_consumption,summon:rules.sv_pakkun_chakra_consumption,
     clone:label==='Bunshin'?rules.sv_bunshin_chakra_consumption:rules.sv_kagebunshin_chakra_consumption,
-    ougi:6500,handbook:6500,
+    ougi:6500,handbook:6500,awaken:1500,
     rush:Math.round(charge*1000*(label==='Rasengan'?rules.sv_rasengan_charge_chakra_consumption:rules.sv_chidori_charge_chakra_consumption))};
   const cost=costs[type];
   // The ultimate needs something to land on. Checking before the chakra is spent
@@ -2067,13 +2120,19 @@ function cast(skill,charge=0,secondary=false){
   const ultimate=type==='ougi'||type==='handbook';
   const ougiTarget=ultimate?nearestOpponent(430):null;
   if(ultimate&&!ougiTarget){message('Няма цел за '+label);return;}
+  // Storm opens awakening when a fighter is nearly out, and it reads better as a
+  // comeback than as something you lead with.
+  if(type==='awaken'){
+    if(awaken){message('Вече си пробуден');return;}
+    if(player.hp>awakenThreshold){message('Пробуждане под '+awakenThreshold+' живот');return;}
+  }
   if(!unlimited()&&player.chakra<cost){message('Недостатъчно чакра');return;}
   if(!unlimited())player.chakra-=cost;
   prepared=null;message(label+'!');showJutsuCutIn(label);
   const pose={rasenshuriken:'ref_shoot_shuriken',fire:player.ground?'ref_gouk_shoot':'air_gouk_shoot',volley:'ref_hous_shoot',
     rush:label==='Rasengan'?'ref_rasengan_thrust':'ref_chidori_thrust',heal:'ref_seal_heal',boost:secondary?'ref_powerkick_start':'ref_powerpunch',
     summon:'ref_tsuiga',stun:'jutsu_seal_idle',clone:label==='Bunshin'?'jutsu_seal_idle':'ref_seal_kagebunshin',
-    ougi:'forward_strong3',handbook:'ref_seal_kagebunshin'}[type];
+    ougi:'forward_strong3',handbook:'ref_seal_kagebunshin',awaken:'deep_idle'}[type];
   if(pose)playPose(player,pose);
   const dir=aim(),color=heroes[player.id].color;
   const sounds={fire:'Gouk_Shoot',volley:'Hous_Shoot',heal:'Heal_Loop',stun:'Orioke',boost:'Power_Punch',
@@ -2121,6 +2180,8 @@ function cast(skill,charge=0,secondary=false){
     orioke.start=now;orioke.end=now+duration;orioke.originalRoot=originalRoot;
     playPose(player,'ref_control_orioke',duration,true);
     visual(player.pos,0xf4e6df,26,.55,'poof');
+  }else if(type==='awaken'){
+    startAwaken();
   }else if(type==='handbook'){
     startHandbook(ougiTarget);
   }else if(type==='ougi'){
@@ -2178,6 +2239,7 @@ function hurtPlayer(damage,source){
   if(player.hp<=0){
     pendingThrow=null;
     pendingRasenshuriken=null;
+    endAwaken();
     player.deaths++;if(source&&!source.remote)source.kills++;
     spawn(player,player.spawn);player.chakra=maxChakra;player.stamina=100;heavy=null;
     player.ammo=weapons.map(w=>w.ammo);charged=null;prepared=null;healing=null;chain=0;locked=null;
@@ -2578,6 +2640,7 @@ function update(dt,measure=false){
   const airborne=!player.ground,oldX=player.pos.x,oldZ=player.pos.z;
   if(!focusMode||player.stamina<=0)player.waterWalk=false;
   if(orioke)motion.set(0,0,0);
+  if(awaken)motion.multiplyScalar(1.22);
   move(player,motion.x,motion.z,dt);
   if(walking&&motion.lengthSq()>0&&now>=(player.boundaryNoticeAt??0)&&world.skyBoundary&&
     Math.hypot(player.pos.x-oldX,player.pos.z-oldZ)<motion.length()*.2){
@@ -2631,6 +2694,7 @@ function update(dt,measure=false){
     projectile(pendingRasenshuriken.direction,0xa4eaff,42,player,820,158,'rasenshuriken');
     pendingRasenshuriken=null;
   }
+  if(awaken)updateAwaken(dt);
   if(handbook)updateHandbook(dt);
   if(pendingOugi&&now>=pendingOugi.at){
     const {target,label}=pendingOugi;

@@ -28,8 +28,6 @@
 #menu{padding:0;background:#130d09;display:grid;place-items:center;overflow:hidden}
 
 .title-stage{position:relative;isolation:isolate;display:grid;align-items:center;width:100%;height:100%;min-height:100dvh;background:#19100d}
-.title-art{position:absolute;z-index:-1;inset:0 0 0 39%;background:url(arena-title.webp) right center/175% 100% no-repeat}
-.title-art::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#19100d 1%,transparent 55%),linear-gradient(0deg,#160d0bbb,transparent 35%)}
 .title-copy{margin-left:clamp(26px,8vw,138px);width:min(39vw,560px);padding-block:32px}
 .title-kicker{color:#ffd195;font-size:clamp(.64rem,1vw,.9rem);font-weight:800;margin:0 0 18px}
 .title-copy h1{margin:0;font-size:clamp(3rem,8vw,8rem);color:#fff1c8;font-weight:950;line-height:.86;letter-spacing:-.07em;text-shadow:0 5px 0 #561f13,0 12px 28px #090401}
@@ -148,3 +146,31 @@
 #_perf{position:fixed;top:calc(env(safe-area-inset-top) + 4px);left:50%;transform:translateX(-50%);z-index:15;padding:5px 8px;background:#101715ed;color:#fff3d8;border:1px solid #be9050;border-radius:5px;text-align:center}
 #_perf pre{max-width:85vw;max-height:38vh;overflow:auto;margin:0 0 3px;font:10px/1.2 monospace;text-align:left}
 #_perf button{padding:3px 7px;font-size:11px}
+
+#combat-feedback:not([hidden]){display:flex;align-items:center;gap:.28rem;position:absolute;top:49%;left:26%;font-weight:900;color:#ffe4ae}
+#combat-feedback img{height:clamp(24px,5vh,52px);object-fit:contain}
+
+#title-roster{position:absolute;right:5%;bottom:12%;display:flex;gap:.5rem;z-index:1}
+#title-roster button{border-radius:4px;background:#1b140ee8;color:#ffe9bf;border:1px solid #bf873c;padding:.5rem .85rem;font-weight:800}
+#title-roster button[aria-pressed=true]{background:#f5bd66;color:#29150b;border-color:#ffe4ac;box-shadow:0 0 18px #ffad535c}
+#menu.live-title{background:transparent;padding:0}
+#menu.live-title .title-stage{background:linear-gradient(90deg,#120d0bf5 0%,#18100dda 30%,#21150b20 60%,transparent 100%)}
+#menu.live-title .title-art{display:none}
+#menu.live-title #title-roster{inset:0;display:block;pointer-events:none}
+#menu.live-title #title-roster button{position:absolute;transform:translateX(-50%);width:clamp(50px,10vw,170px);display:grid;align-items:end;justify-items:center;padding:0;background:transparent;border:0;box-shadow:none;pointer-events:auto}
+#menu.live-title #title-roster span{padding:.34rem .64rem;border:1px solid #bf873c;border-radius:4px;background:#17100eea;color:#ffe9bf;white-space:nowrap}
+#menu.live-title #title-roster button:is(:hover,[aria-pressed=true]) span{background:#f5bd66;color:#29150b;border-color:#ffe4ac}
+@media(max-aspect-ratio:29/20){
+  #menu.live-title .title-copy{align-self:start;margin:0 auto;text-align:center;width:90%;padding:4vh 0 0}
+  #menu.live-title .title-copy h1{font-size:clamp(2rem,7vw,4rem)}
+  #menu.live-title .title-copy h1 em{display:inline}
+  #menu.live-title .title-actions{justify-content:center}
+  #menu.live-title .title-stage{background:linear-gradient(#120d0be8,transparent 48%)}
+}
+
+#title-progress{display:block;width:min(360px,58vw);height:.68rem;accent-color:#ffb25b;margin-bottom:.35rem}
+.roster-navigation{position:absolute;bottom:3%;right:5%;display:flex;gap:.5rem;z-index:2}
+.roster-navigation button{padding:.2rem .8rem;font-size:1.6rem;line-height:1;background:#21150ee8;border-color:#ba7935;color:#ffe9bf}
+#combat-feedback img{height:clamp(38px,9vh,100px)}
+#menu.paused-game:has(#title-progress:not([hidden])) .title-stage{display:grid;position:absolute;inset:0;pointer-events:none;background:#170e0dcc}
+#menu.paused-game:has(#title-progress:not([hidden])) :is(.title-copy,#title-roster,.roster-navigation){visibility:hidden}

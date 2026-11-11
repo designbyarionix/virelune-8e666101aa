@@ -239,6 +239,144 @@ async function model(id){
   });
   return copy;
 }
+const titleRoster=['sasuke','naruto','sakura',...Object.keys(heroes).filter(id=>!['sasuke','naruto','sakura'].includes(id))];
+let titlePreview=null,titlePreviewLoading=false,rosterStart=0;
+const roster=$('title-roster'),rosterButtons=['sasuke','naruto','sakura'].map(id=>$('title-hero-'+id));
+const visibleHero=index=>titleRoster[(rosterStart+index)%titleRoster.length];
+function loadingProgress(value,label){
+  const bar=$('title-progress');
+  bar.value=value;
+  bar.hidden=value===100;
+  if(label)updateStatus(label);
+}
+function updateRosterSelection(){
+  for(const [index,button] of rosterButtons.entries()){
+    const id=visibleHero(index);
+    button.dataset.hero=id;
+    button.firstElementChild.textContent=heroes[id].label;
+    button.setAttribute('aria-pressed',String(id===$('character').value));
+  }
+}
+function shiftRoster(direction){
+  if(busy)return;
+  rosterStart=(rosterStart+direction+titleRoster.length)%titleRoster.length;
+  $('character').value=visibleHero(1);
+  updateRosterSelection();
+}
+$('roster-prev').onclick=()=>shiftRoster(-1);
+$('roster-next').onclick=()=>shiftRoster(1);
+roster.addEventListener('click',event=>{
+  const button=event.target.closest('button[data-hero]');
+  if(!button||busy)return;
+  $('character').value=button.dataset.hero;
+  updateRosterSelection();
+});
+$('character').addEventListener('change',()=>{
+  const index=titleRoster.indexOf($('character').value);
+  if(index>=0&&![0,1,2].some(slot=>visibleHero(slot)===$('character').value)){
+    rosterStart=(index-1+titleRoster.length)%titleRoster.length;
+  }
+  updateRosterSelection();
+});
+function closeTitlePreview(){
+  if(!titlePreview)return;
+  disposeTree(titlePreview.map.group);
+  titlePreview.shadowGeometry.dispose();
+  titlePreview.shadowMaterial.dispose();
+  for(const {root,mixer} of titlePreview.cast){
+    mixer.stopAllAction();
+    root.traverse(mesh=>{if(mesh.isSkinnedMesh)mesh.skeleton.dispose();});
+  }
+  titlePreview=null;
+  $('menu').classList.remove('live-title');
+}
+async function startTitlePreview(){
+  if(world||busy||titlePreviewLoading||titlePreview||document.hidden)return;
+  titlePreviewLoading=true;
+  loadingProgress(10,'Зареждам Chunin Finals…');
+  let map;
+  try{
+    map=await loadMap(files,'chuninfinals');
+    if(world||busy){disposeTree(map.group);return;}
+    loadingProgress(48,'Зареждам героите…');
+    let completed=0;
+    const models=await Promise.all(titleRoster.map(async id=>{
+      const root=await model(id);
+      if(!busy&&!world)loadingProgress(48+Math.round(++completed/titleRoster.length*40));
+      return root;
+    }));
+    if(world||busy){disposeTree(map.group);return;}
+    const stage=new T.Scene();
+    stage.background=new T.Color(0xa1ccd9);
+    stage.fog=new T.FogExp2(0xa1ccd9,.0006);
+    const light=new T.DirectionalLight(0xffe1be,2);
+    light.position.set(-220,180,70);
+    stage.add(map.group,new T.HemisphereLight(0xf4f8ff,0xaca383,1.75),light);
+    const shadowGeometry=new T.PlaneGeometry(58,42);
+    const shadowMaterial=new T.ShaderMaterial({transparent:true,depthWrite:false,
+      vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+      fragmentShader:'varying vec2 vUv; void main(){float d=length((vUv-.5)*2.);gl_FragColor=vec4(.06,.04,.02,.36*(1.-smoothstep(.15,1.,d)));}'});
+    const cast=models.map((root,index)=>{
+      const position=new T.Vector3(index===1?-67:-47,-328,-160+(index-1)*55);
+      const floor=map.floorY(position)??-382;
+      position.y=floor+(root.userData.nativeFeet??0);
+      root.position.copy(position);root.rotation.y=Math.PI+(index-1)*.2;
+      root.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=false;mesh.receiveShadow=false;}});
+      root.visible=false;
+      const shadow=new T.Mesh(shadowGeometry,shadowMaterial);
+      shadow.visible=false;
+      shadow.rotation.x=-Math.PI/2;shadow.position.set(position.x,floor+.35,position.z);
+      stage.add(root,shadow);
+      const mixer=new T.AnimationMixer(root),idle=root.animation('idle');
+      if(idle)mixer.clipAction(idle).startAt(index*.22).play();
+      return {root,mixer,shadow};
+    });
+    const slots=cast.slice(0,3).map(actor=>({position:actor.root.position.clone(),rotation:actor.root.rotation.y,floor:actor.shadow.position.y-.35}));
+    titlePreview={stage,map,cast,slots,shadowGeometry,shadowMaterial,camera:new T.PerspectiveCamera(37,1,2,7000),point:new T.Vector3()};
+    updateRosterSelection();
+    $('menu').classList.add('live-title');
+    loadingProgress(100,'Избери герой и карта.');
+  }catch(error){
+    if(map)disposeTree(map.group);
+    if(!busy&&!world)loadingProgress(100,'3D сцената не се зареди. Можеш да влезеш в арената.');
+    console.warn('NNK title preview',error.message);
+  }finally{titlePreviewLoading=false;}
+}
+function renderTitlePreview(dt,t){
+  const {stage,camera:previewCamera,cast,slots,point}=titlePreview;
+  const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const aspect=innerWidth/innerHeight;
+  previewCamera.aspect=aspect;
+  previewCamera.updateProjectionMatrix();
+  const wide=aspect>1.45;
+  const lateral=-160-(wide?aspect*28:0);
+  previewCamera.position.set(wide?-280:-325,-333,lateral+(reduced?0:Math.sin(t*.00022)*4));
+  previewCamera.lookAt(-55,wide?-344:-310,lateral);
+  previewCamera.updateMatrixWorld();
+  for(const actor of cast)actor.root.visible=actor.shadow.visible=false;
+  for(const [index,slot] of slots.entries()){
+    const actor=cast[(rosterStart+index)%cast.length];
+    actor.root.position.copy(slot.position);
+    actor.root.position.y=slot.floor+(actor.root.userData.nativeFeet??0);
+    actor.root.rotation.y=slot.rotation;
+    actor.shadow.position.copy(slot.position).y=slot.floor+.35;
+    actor.root.visible=actor.shadow.visible=true;
+    if(!reduced)actor.mixer.update(dt);
+    point.copy(slot.position).y=slot.floor+5;
+    point.project(previewCamera);
+    const button=rosterButtons[index];
+    button.style.left=(50+point.x*50)+'%';
+    const feet=50-point.y*50;
+    point.copy(slot.position).y=slot.floor+71;
+    point.project(previewCamera);
+    const head=50-point.y*50;
+    button.style.top=head+'%';
+    button.style.height=(feet-head+4)+'%';
+  }
+  renderer.render(stage,previewCamera);
+}
+if(typeof window.requestIdleCallback==='function')window.requestIdleCallback(()=>startTitlePreview(),{timeout:1400});
+else if(typeof window.setTimeout==='function')window.setTimeout(startTitlePreview,120);
 function openMenu(){
   if(!world||busy)return;
   paused=true;stickX=stickY=0;$('touch-controls').hidden=true;keys.clear();taps.clear();
@@ -254,7 +392,7 @@ function resume(){
   if(heavy)releaseHeavy();
   if(touch){$('touch-controls').hidden=false;return;}
   if(!document.pointerLockElement)message('Кликни в арената за управление с мишката');
-  renderer.domElement.requestPointerLock?.()?.catch?.(()=>{});
+  requestArenaPointerLock();
 }
 $('resume').onclick=resume;
 $('restart-match').onclick=()=>$('play').onclick();
@@ -262,10 +400,19 @@ renderer.domElement.addEventListener('wheel',e=>{
   if(paused||!world)return;
   e.preventDefault();cameraZoom=clamp(cameraZoom+Math.sign(e.deltaY)*24,100,440);
 },{passive:false});
-renderer.domElement.onclick=()=>{if(!touch&&!paused&&!document.pointerLockElement)renderer.domElement.requestPointerLock?.()?.catch?.(()=>{});};
-document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement&&!paused)openMenu();});
+function requestArenaPointerLock(){
+  if(touch||paused||document.pointerLockElement||!navigator.userActivation?.isActive)return;
+  renderer.domElement.requestPointerLock?.()?.catch?.(()=>{});
+}
+let hadArenaPointerLock=false;
+document.addEventListener('pointerlockchange',()=>{
+  const locked=document.pointerLockElement===renderer.domElement;
+  if(hadArenaPointerLock&&!locked&&!paused)openMenu();
+  hadArenaPointerLock=locked;
+});
 document.addEventListener('mousemove',e=>{
-  if(paused||document.pointerLockElement!==renderer.domElement)return;
+  if(touch||paused||!world)return;
+  if(document.pointerLockElement!==renderer.domElement&&e.target!==renderer.domElement)return;
   yaw-=e.movementX*.0024;pitch=clamp(pitch-e.movementY*.0024,-1.12,1.05);
 });
 window.addEventListener('blur',()=>{keys.clear();taps.clear();combo='';charged=null;heavy=null;});
@@ -324,7 +471,7 @@ document.addEventListener('keyup',e=>{
 renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
 document.addEventListener('mousedown',e=>{
   if(touch||paused||(document.pointerLockElement!==renderer.domElement&&e.target!==renderer.domElement))return;
-  if(e.button===0||e.button===2){e.preventDefault();attack(e.button===2);}
+  if(e.button===0||e.button===2){e.preventDefault();requestArenaPointerLock();attack(e.button===2);}
   if(e.button===3){e.preventDefault();keys.add('MouseBlock');}
 });
 document.addEventListener('mouseup',e=>{
@@ -567,7 +714,7 @@ function spawn(entity,i){
   entity.pos.copy(spawnPoint(i));entity.hp=100;entity.dy=0;entity.impulse=new T.Vector3();entity.airJump=false;entity.ground=false;entity.root.visible=true;
   const y=world.floorY(entity.pos);
   entity.feetOffset=y===null?34:entity.pos.y-y;
-  entity.route=[];entity.routeSearch=null;entity.replan=0;entity.swingAt=0;entity.swing=0;entity.pose=null;entity.dashUntil=0;entity.wall=null;entity.floorProbe=null;entity.safePosition=null;entity.waterWalk=false;entity.backflip=false;entity.wallLock=0;entity.wallKickUsed=false;entity.swingIndex=0;entity.lastSwing=-10;entity.powerKickAt=0;
+  entity.route=[];entity.routeSearch=null;entity.replan=0;entity.swingAt=0;entity.swing=0;entity.pose=null;entity.dashUntil=0;entity.wall=null;entity.floorProbe=null;entity.safePosition=null;entity.waterWalk=false;entity.backflip=false;entity.wallLock=0;entity.wallKickUsed=false;entity.wallJumpUntil=0;entity.swingIndex=0;entity.lastSwing=-10;entity.powerKickAt=0;
   if(entity===player)clearRush();
   face(entity,new T.Vector3(1,0,0));
 }
@@ -581,7 +728,7 @@ async function addBots(n){
     bot.nameplate.textContent=heroes[id].label+' · Бот '+(botList.length+1);
     bot.nameplate.hidden=true;$('bot-names').append(bot.nameplate);
     actors.add(root);spawn(bot,botSpawn());botList.push(bot);refreshOpponents();
-    if(id==='naruto')warmOwnerOrb(bot,'Rasengan');
+    if(id==='naruto')warmOwnerOrb(bot,'Rasengan',!busy);
   }
   updateHUD();
 }
@@ -645,7 +792,7 @@ $('play').onclick=async()=>{
   if(!files||busy)return;
   const nameTag=playerName();
   if(lanAccess&&!nameTag){updateStatus('Въведи име и избери герой.');$('player-name').focus();return;}
-  busy=true;$('play').disabled=true;updateStatus('Зареждам картата и моделите…');
+  busy=true;closeTitlePreview();$('play').disabled=true;loadingProgress(10,'Зареждам картата и моделите…');
   try{
     const name=lanAccess?'chuninfinals':$('map').value,id=$('character').value;
     $('hero-portrait').src=files.url('sprites/vgui/'+id+'.png')??'';
@@ -653,6 +800,7 @@ $('play').onclick=async()=>{
     const [next,root,settings]=await Promise.all([loadMap(files,name),model(id),
       files.bytes('listenserver.cfg').then(b=>parseRules(new TextDecoder().decode(b))).catch(()=>defaults),
       loadJutsuEffects(id,mode!=='lan'&&Number($('bots').value)>0)]);
+    loadingProgress(42,'Подготвям ефектите…');
     if(!baseSpritesLoaded){
       const assets={hit:'taijutsu/Melee_Hit1.spr',poof:'general/Poof.spr',chidori:'jutsus/Chidori_Ball.spr',
         rasenganHit:'jutsus/Rasengan_Hit.spr',chakraFocus:'jutsus/Chakra_Focus.spr',ripple:'fx/Ripples.spr',splash:'fx/Water_Splash.spr',
@@ -756,6 +904,7 @@ $('play').onclick=async()=>{
       match.timer=setInterval(()=>pollLan(match),25);
     }
     refreshOpponents();
+    loadingProgress(75,'Подготвям участниците…');
     if(!lan)await addBots(Number($('bots').value));
     if(touch&&(player.id==='naruto'||botList.some(bot=>bot.id==='naruto'))){
       warmAllSprites();
@@ -764,19 +913,21 @@ $('play').onclick=async()=>{
       for(const pose of ['charge','charge_bunshin','ready','thrust','end'])naruto.root.animation('ref_rasengan_'+pose);
     }
     warmAllSprites();
-    renderer.compile?.(scene,camera);
-    if(id==='naruto'){warmOwnerOrb(player,'Rasengan');prepareChargeHelper();}
-    if(id==='sasuke'||id==='kakashi'||id==='anbu')warmOwnerOrb(player,'Chidori');
+    if(id==='naruto'){warmOwnerOrb(player,'Rasengan',false);prepareChargeHelper();}
+    if(id==='sasuke'||id==='kakashi'||id==='anbu')warmOwnerOrb(player,'Chidori',false);
+    loadingProgress(90,'Подготвям арената…');
+    await new Promise(resolve=>setTimeout(resolve,0));
     buildVisualPools();
     $('addbots').hidden=!!lan;
+    $('combat-feedback').hidden=true;
     $('hud').hidden=false;$('training').hidden=false;
     battleStarts=mode==='lan'?0:now+.8;
     cinematicUntil=0;pendingRasenshuriken=null;
     $('battle-intro').hidden=!battleStarts;
     $('battle-ready').hidden=false;$('battle-go').hidden=true;
     refreshTech();updateHUD();updateStatus('Тренировъчен мач · F8 отваря менюто.');
-    busy=false;resume();
-  }catch(e){console.error(e);updateStatus(e.message);busy=false;}
+    loadingProgress(100);busy=false;resume();
+  }catch(e){console.error(e);loadingProgress(100,e.message);busy=false;if(!world)startTitlePreview();}
   finally{$('play').disabled=false;}
 };
 function unlimited(){return mode!=='lan'&&$('free').checked;}
@@ -873,28 +1024,30 @@ function stepOntoLedge(position,wall){
   }
   return null;
 }
+function tryWallBackflip(){
+  if(player.ground||player.backflip||player.wallKickUsed||now<(player.wallLock??0))return false;
+  const toward=new T.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
+  const wall=player.wall??wallContact(player.pos,toward,true,36)??wallContact(player.pos,toward.negate(),true,36);
+  if(!wall||wall.distance>36||!spendStamina(rules.sv_backflip_stamina_drain))return false;
+  player.backflip=true;player.wallKickUsed=true;player.wall=null;player.wallLock=now+.6;
+  player.wallJumpUntil=0;player.ground=false;player.airJump=true;player.waterWalk=false;player.dashUntil=0;
+  player.flipDirection=wall.normal.clone().setY(0).normalize();
+  player.flipFacing=player.flipDirection.clone().negate();player.impulse.set(0,0,0);
+  player.dy=rules.sv_w_jumpheight*.62;
+  playPose(player,'dodge_backflip',player.dy*2/780);sound('movement/Wall_Jump.wav');
+  return true;
+}
 function jumpPlayer(){
   if(now<battleStarts)return;
-  const back=movingKey('KeyS')&&!movingKey('KeyW');
-  if(back&&!player.backflip&&!player.wallKickUsed&&now>=(player.wallLock??0)){
-    const toward=new T.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
-    const wall=player.wall??wallContact(player.pos,toward,true,32)??wallContact(player.pos,toward.negate(),true,32);
-    if(wall&&wall.distance<=32&&spendStamina(rules.sv_backflip_stamina_drain)){
-      player.backflip=true;player.wallKickUsed=true;player.wall=null;player.wallLock=now+.6;
-      player.ground=false;player.airJump=true;player.waterWalk=false;player.dashUntil=0;
-      player.flipDirection=wall.normal.clone().setY(0).normalize();
-      player.flipFacing=player.flipDirection.clone().negate();player.impulse.set(0,0,0);
-      player.dy=rules.sv_w_jumpheight*.62;
-      playPose(player,'dodge_backflip',player.dy*2/780);sound('movement/Wall_Jump.wav');return;
-    }
+  const ahead=movingKey('KeyW'),back=movingKey('KeyS')&&!ahead;
+  if((ahead||back||player.wall)&&tryWallBackflip())return;
+  if(ahead&&!player.ground&&!player.waterWalk&&!player.backflip&&!player.wallKickUsed&&!world.water(player.pos)){
+    player.wallJumpUntil=now+.15;
+    return;
   }
-  if(player.wall){
-    if(!spendStamina(rules.sv_d_jumpheight_stamina_drain))return;
-    player.impulse.addScaledVector(player.wall.normal,340);
-    player.wall=null;player.wallLock=now+.5;
-    player.dy=rules.sv_w_jumpheight;player.airJump=true;player.ground=false;
-    playPose(player,'jump_wall',.62);sound('movement/Wall_Jump.wav');return;
-  }
+  jumpWithoutWall(back);
+}
+function jumpWithoutWall(back){
   if(!player.waterWalk&&world.water(player.pos)){player.dy=200;return;}
   if(player.ground||player.waterWalk){
     if(!spendStamina(back?rules.sv_backflip_stamina_drain:rules.sv_jumpheight_stamina_drain))return;
@@ -1152,7 +1305,7 @@ function buildVisualPools(){
   const meshes=[...focusSprites];
   if(oriokeVisual){meshes.push(oriokeVisual.body);if(oriokeVisual.cloud)meshes.push(oriokeVisual.cloud);}
   for(const pool of visuals.pools.values())for(const item of pool.items){
-    for(const mesh of [item.mesh,item.trail]){
+    for(const mesh of [item.mesh??(item.isObject3D?item:null),item.trail]){
       if(!mesh)continue;
       meshes.push(mesh);
     }
@@ -1171,8 +1324,9 @@ function buildVisualPools(){
   try{renderer.compile?.(scene,camera);}
   finally{for(const mesh of meshes)mesh.visible=false;}
 }
-function damage(bot,n,source=player){
+function damage(bot,n,source=player,hits=1){
   if(bot.dead)return;
+  if(source===player&&n>0)showCombatFeedback(hits);
   if(bot.kind){
     bot.hp-=n;
     if(bot.hp<=0){
@@ -1225,6 +1379,15 @@ function melee(range,amount,spread=.35){
     if(enemies(player,bot)&&length<range&&length>0&&d.multiplyScalar(1/length).dot(dir)>spread&&visibleBetween(player.pos,bot.pos))damage(bot,amount);
   }
 }
+let feedbackUntil=0;
+function showCombatFeedback(hits){
+  const feedback=$('combat-feedback'),number=$('combo-number');
+  const color=hits>=5?'red':hits>=3?'yellow':'normal';
+  number.src='assets/sprites/hud/combo_hits/'+color+'_'+hits+'.png';
+  number.alt=hits+' удара';
+  feedback.hidden=false;
+  feedbackUntil=now+1.25;
+}
 function strikeTarget(strongAttack){
   const secondary=Boolean(strongAttack);
   const dir=aim();
@@ -1243,7 +1406,7 @@ function strikeTarget(strongAttack){
   if(!bot){sound('taijutsu/Miss_1.wav',.28);return;}
   chain=secondary?0:now-lastHit<.87?(chain%5)+1:1;lastHit=now;
   const hit=strike(rules,{secondary,airborne:!player.ground,chain,guarded:now<(bot.guard??0)});
-  damage(bot,hit.damage);
+  damage(bot,hit.damage,player,secondary?1:chain);
   bot.stun=now+hit.stun;
   if(!bot.dead)playPose(bot,secondary?strongAttack+'_hit':bot.ground?'hit'+(next%3+1):'air_hit'+(next%3+1),.42);
   if(hit.knockback){
@@ -1251,7 +1414,7 @@ function strikeTarget(strongAttack){
     if(secondary)bot.dy=Math.max(bot.dy,hit.knockback*.48);
   }
   if(chain===5)attackUntil=now+rules.sv_final_swing_delay;
-  if(chain>1)message(chain+' удара');
+
 }
 function registerShot(kind){
   const prototype=weaponModels.get(kind);
@@ -1400,7 +1563,7 @@ function disposeChargeHelper(){
   chargeHelper=null;
 }
 function removeTechniqueOrb(orb){visuals.release(orb.userData.poolOwner,orb);}
-function warmOwnerOrb(owner,label){
+function warmOwnerOrb(owner,label,compile){
   visuals.register(owner,{
     size:2,group:'orb',
     create:()=>{
@@ -1435,7 +1598,7 @@ function warmOwnerOrb(owner,label){
       }
     });
   }
-  try{renderer.compile?.(scene,camera);}
+  try{if(compile)renderer.compile?.(scene,camera);}
   finally{for(const orb of visuals.pools.get(owner).items)orb.visible=false;}
 }
 function makeTechniqueOrb(owner){
@@ -2051,6 +2214,13 @@ function update(dt,measure=false){
   const slow=keys.has('ControlLeft')||keys.has('ControlRight');
   const swimming=world.water(player.pos)&&!player.waterWalk;
   const climbing=focusMode&&!swimming&&!player.backflip&&!rush&&now>=(player.wallLock??0);
+  if(player.wallJumpUntil){
+    if(player.ground)player.wallJumpUntil=0;
+    else if(!tryWallBackflip()&&now>=player.wallJumpUntil){
+      player.wallJumpUntil=0;
+      jumpWithoutWall(false);
+    }
+  }
   const priorWall=player.wall;
   player.wall=climbing&&(priorWall||!blocking&&!charged&&movingKey('KeyW')&&!player.ground)?
     wallContact(player.pos,priorWall?priorWall.normal.clone().negate():forward,!!priorWall):null;
@@ -2330,6 +2500,7 @@ function update(dt,measure=false){
     }else f.mesh.scale.setScalar(f.size*(1+.65*(1-f.left/f.ttl)));
     if(f.left<=0)releaseVisual(f);
   }
+  if(now>=feedbackUntil)$('combat-feedback').hidden=true;
   if(now>noticeUntil)$('notice').textContent=world.canReleaseSeal?.(player.pos)?
     (touch?'Оръжие':'E')+' · освободи печата':prepared&&!charged?prepared[0]+' · ляв бутон или Enter':'';
   updateCamera(dt);
@@ -2543,7 +2714,8 @@ renderer.setAnimationLoop(t=>{
   if(measure)perfTechniqueMs=0;
   if(world&&!paused){now+=Math.max(0,dt);update(Math.max(0,dt),measure);}
   const updateEnd=measure?performance.now():0;
-  renderer.render(scene,camera);
+  if(titlePreview&&!world&&!busy)renderTitlePreview(Math.max(0,dt),t);
+  else renderer.render(scene,camera);
   if(measure){
     const renderMs=performance.now()-updateEnd;
     if(previousPerfFrame)recordPerf(elapsed,previousPerfFrame);

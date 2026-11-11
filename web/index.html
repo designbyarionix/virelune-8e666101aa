@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="bg">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>NNK Web · тренировъчна арена</title><link rel="stylesheet" href="style.css">
+<title>NNK Web · тренировъчна арена</title><link rel="stylesheet" href="style.css?v=39">
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
 </head>
 <body>
@@ -24,7 +24,9 @@
 <aside id="jutsu-cut-in" hidden aria-hidden="true">
   <div class="cut-in-portrait"><img id="cut-in-image" alt=""></div>
   <div class="cut-in-caption"><span id="cut-in-hero"></span><strong id="cut-in-name"></strong></div>
-</aside><div id="notice" role="status"></div><p class="hint">WASD · движение　 WW със задържане · даш　 S + Space · салто　 Скок + W до стена · бягане по стена　 F · чакра / ходене по вода　 Колелце · приближаване / отдалечаване　 Shift + WASD · печати　 P · комбинации　 LMB / RMB · удари　 Q · блок　 E · оръжие　 T · прицел　 Esc · пауза</p></div>
+</aside><div id="combat-feedback" hidden role="status">
+<img id="combo-number" alt=""><img id="combo-kanji" alt="" src="assets/sprites/hud/combo_hits/kanji.png">
+</div><div id="notice" role="status"></div><p class="hint">WASD · движение　 WW със задържане · даш　 S + Space · салто　 W + втори скок до стена · отблъскване　 F · чакра / ходене по вода　 Колелце · приближаване / отдалечаване　 Shift + WASD · печати　 P · комбинации　 LMB / RMB · удари　 Q · блок　 E · оръжие　 T · прицел　 Esc · пауза</p></div>
 <div id="rotate-device" role="status"><strong>Завърти телефона</strong><span>Играта се играе на хоризонтален екран.</span></div>
 <div id="touch-controls" hidden aria-label="Управление с докосване">
   <div id="joystick" aria-label="Джойстик за движение"><i aria-hidden="true"></i><span id="joystick-thumb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18c5-1 4-12 12-12a6 6 0 1 1-4 10c-4-3 0-9 3-6 2 2 0 4-1 3m5-6 4-2M3 18h9"/></svg></span></div>
@@ -51,7 +53,7 @@
 </div>
 <section id="menu" aria-label="Naruto Arena">
  <div class="title-stage">
-  <div class="title-art" aria-hidden="true"></div>
+
   <div class="title-copy">
    <p class="title-kicker">N A I &nbsp; T E K I &nbsp; K E N S E I</p>
    <h1>Naruto <em>Arena</em></h1>
@@ -62,7 +64,16 @@
     <button id="title-settings" class="arena-button" type="button" aria-controls="arena-settings" aria-expanded="false">Настройки</button>
    </div>
   </div>
-  <div class="title-status"><p id="status" role="status">Избери герой и карта, за да влезеш в арената.</p></div>
+  <div id="title-roster" aria-label="Избор на герой">
+   <button id="title-hero-sasuke" data-hero="sasuke" type="button" aria-pressed="false"><span>Sasuke</span></button>
+   <button id="title-hero-naruto" data-hero="naruto" type="button" aria-pressed="true"><span>Naruto</span></button>
+   <button id="title-hero-sakura" data-hero="sakura" type="button" aria-pressed="false"><span>Sakura</span></button>
+  </div>
+  <div class="roster-navigation" aria-label="Още герои">
+   <button id="roster-prev" type="button" aria-label="Предишен герой">‹</button>
+   <button id="roster-next" type="button" aria-label="Следващ герой">›</button>
+  </div>
+  <div class="title-status"><progress id="title-progress" max="100" value="0" aria-label="Зареждане"></progress><p id="status" role="status">Избери герой и карта, за да влезеш в арената.</p></div>
  </div>
  <div id="arena-settings" class="panel title-panel" hidden>
   <div class="title-panel-header"><h2>Настройки на арената</h2><button id="close-settings" type="button" aria-label="Затвори">×</button></div>
@@ -100,7 +111,7 @@
   } else {
     const original = status.textContent;
     status.textContent = 'Зареждам игровия модул…';
-    import('./game.js').then(() => {
+    import('./game.js?v=39').then(() => {
       if (status.textContent === 'Зареждам игровия модул…') status.textContent = original;
     }).catch(error => {
       console.error(error);

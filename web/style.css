@@ -168,7 +168,17 @@
   #menu.live-title .title-stage{background:linear-gradient(#120d0be8,transparent 48%)}
 }
 
-#title-progress{display:block;width:min(360px,58vw);height:.68rem;accent-color:#ffb25b;margin-bottom:.35rem}
+.loading-bar{position:relative;display:block;width:min(360px,58vw);margin-bottom:.35rem;overflow:hidden;border-radius:.34rem}
+.loading-bar:has(#title-progress[hidden]){display:none}
+#title-progress{display:block;width:100%;height:.68rem;accent-color:#ffb25b;margin:0}
+/* Parsing a map or a model blocks the main thread, which froze the bar and read
+   as a crash. A transform animation runs on the compositor, so this sweep keeps
+   moving through the stalls and the screen never looks stuck. */
+.loading-bar::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(90deg,transparent,#ffdcae66,transparent);
+  animation:loading-sweep 1.15s linear infinite}
+@keyframes loading-sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.loading-bar::after{animation:none}}
 .roster-navigation{position:absolute;bottom:3%;right:5%;display:flex;gap:.5rem;z-index:2}
 .roster-navigation button{padding:.2rem .8rem;font-size:1.6rem;line-height:1;background:#21150ee8;border-color:#ba7935;color:#ffe9bf}
 #combat-feedback img{height:clamp(38px,9vh,100px)}

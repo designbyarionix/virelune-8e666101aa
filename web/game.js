@@ -259,14 +259,50 @@ async function model(id){
   return copy;
 }
 const titleRoster=['sasuke','naruto','sakura',...Object.keys(heroes).filter(id=>!['sasuke','naruto','sakura'].includes(id))];
-let titlePreview=null,titlePreviewLoading=false,rosterStart=0;
+let titlePreview=null,titlePreviewLoading=false,rosterStart=0,titleGreeted=null;
 const roster=$('title-roster'),rosterButtons=['sasuke','naruto','sakura'].map(id=>$('title-hero-'+id));
 const visibleHero=index=>titleRoster[(rosterStart+index)%titleRoster.length];
+// Hand the browser a frame to paint. requestAnimationFrame alone never fires on
+// a hidden tab, so a timer releases it either way.
+function breathe(){
+  return new Promise(resolve=>{
+    let released=false;
+    const release=()=>{if(!released){released=true;resolve();}};
+    requestAnimationFrame(release);
+    setTimeout(release,80);
+  });
+}
 function loadingProgress(value,label){
   const bar=$('title-progress');
   bar.value=value;
   bar.hidden=value===100;
   if(label)updateStatus(label);
+}
+// The models carry char_sel and char_sel_loop from the original game's own
+// character screen, so the roster greets with those instead of the combat idle.
+function playTitlePose(actor,name,delay=0){
+  const clip=actor.root.animation(name)??(name==='char_sel_loop'?actor.root.animation('idle'):null);
+  if(!clip)return null;
+  const once=name==='char_sel';
+  const action=actor.mixer.clipAction(clip).reset();
+  action.setLoop(once?T.LoopOnce:T.LoopRepeat,once?1:Infinity);
+  action.clampWhenFinished=once;
+  if(delay)action.startAt(delay);
+  action.play();
+  if(actor.action&&actor.action!==action)action.crossFadeFrom(actor.action,.22,false);
+  actor.action=action;
+  return action;
+}
+function greetTitleHero(actor){
+  if(!actor)return;
+  const greet=playTitlePose(actor,'char_sel');
+  if(!greet)return;
+  const settle=event=>{
+    if(event.action!==greet)return;
+    actor.mixer.removeEventListener('finished',settle);
+    playTitlePose(actor,'char_sel_loop');
+  };
+  actor.mixer.addEventListener('finished',settle);
 }
 function updateRosterSelection(){
   for(const [index,button] of rosterButtons.entries()){
@@ -274,6 +310,11 @@ function updateRosterSelection(){
     button.dataset.hero=id;
     button.firstElementChild.textContent=heroes[id].label;
     button.setAttribute('aria-pressed',String(id===$('character').value));
+  }
+  const selected=$('character').value;
+  if(titlePreview&&selected!==titleGreeted){
+    titleGreeted=selected;
+    greetTitleHero(titlePreview.cast[titleRoster.indexOf(selected)]);
   }
 }
 function shiftRoster(direction){
@@ -299,6 +340,7 @@ $('character').addEventListener('change',()=>{
 });
 function closeTitlePreview(){
   if(!titlePreview)return;
+  titleGreeted=null;
   disposeTree(titlePreview.map.group);
   titlePreview.shadowGeometry.dispose();
   titlePreview.shadowMaterial.dispose();
@@ -318,12 +360,16 @@ async function startTitlePreview(){
     map=await loadMap(files,'chuninfinals');
     if(world||busy){disposeTree(map.group);return;}
     loadingProgress(48,'Зареждам героите…');
-    let completed=0;
-    const models=await Promise.all(titleRoster.map(async id=>{
-      const root=await model(id);
-      if(!busy&&!world)loadingProgress(48+Math.round(++completed/titleRoster.length*40));
-      return root;
-    }));
+    // Parsing five models at once pins the main thread for one long burst, so
+    // the screen sat frozen and then jumped. One at a time, letting the browser
+    // draw in between, takes about the same wall clock but stays alive.
+    const models=[];
+    for(const [index,id] of titleRoster.entries()){
+      models.push(await model(id));
+      if(busy||world)break;
+      loadingProgress(48+Math.round((index+1)/titleRoster.length*40));
+      await breathe();
+    }
     if(world||busy){disposeTree(map.group);return;}
     const stage=new T.Scene();
     stage.background=new T.Color(0xa1ccd9);
@@ -346,9 +392,9 @@ async function startTitlePreview(){
       shadow.visible=false;
       shadow.rotation.x=-Math.PI/2;shadow.position.set(position.x,floor+.35,position.z);
       stage.add(root,shadow);
-      const mixer=new T.AnimationMixer(root),idle=root.animation('idle');
-      if(idle)mixer.clipAction(idle).startAt(index*.22).play();
-      return {root,mixer,shadow};
+      const actor={root,mixer:new T.AnimationMixer(root),shadow,action:null};
+      playTitlePose(actor,'char_sel_loop',index*.22);
+      return actor;
     });
     const slots=cast.slice(0,3).map(actor=>({position:actor.root.position.clone(),rotation:actor.root.rotation.y,floor:actor.shadow.position.y-.35}));
     titlePreview={stage,map,cast,slots,shadowGeometry,shadowMaterial,camera:new T.PerspectiveCamera(37,1,2,7000),point:new T.Vector3()};

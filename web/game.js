@@ -151,6 +151,7 @@ const motion=new T.Vector3(), goal=new T.Vector3(), forward=new T.Vector3(), rig
 // GC pauses on iOS, so it borrows these scratch values instead.
 const probeA=new T.Vector3(), probeB=new T.Vector3(), raisedProbe=new T.Vector3(), landingProbe=new T.Vector3();
 const stepHeights=[4,8,12,18], moveAxes=[['x',0],['z',0],['y',0]];
+const oriokeFoot=new T.Vector3();
 const fxGeo=new T.SphereGeometry(1,10,7), rippleGeo=new T.PlaneGeometry(1,1), rand=(a,b)=>a+Math.random()*(b-a);
 const rasenganCoreGeometry=new T.SphereGeometry(.72,touch?14:28,touch?10:20);
 const rasenganCoreMaterial=new T.ShaderMaterial({
@@ -1371,11 +1372,16 @@ function preparePersistentVisuals(){
   if(player.id!=='naruto'||!oriokeModel)return;
   const body=cloneSkeleton(oriokeModel);
   body.animation=oriokeModel.animation;body.animations=oriokeModel.animations;
-  // This body replaces player.root while the jutsu is up, and face() places the
-  // root from the actor's position using the model's own foot offset. Orioke's
-  // differs from the hero's, so without this the character sinks into the floor.
+  // This body replaces player.root while the jutsu is up, so it has to be placed
+  // by the hero's metrics, not Orioke's own. cloneSkeleton drops the plain
+  // properties model() attached, including the bone lookups the correction below
+  // measures from, so rebuild them here.
   body.userData.nativeFeet=player.root.userData.nativeFeet;
   body.userData.nativeScale=player.root.userData.nativeScale;
+  body.traverse(mesh=>{
+    const socket=mesh.userData.studioName?.match(/^Bip01 ([LR]) (Hand|Foot)$/);
+    if(socket)(body.sockets??={})[socket[1]+socket[2]]=mesh;
+  });
   const cloud=oriokeCloud&&cloneSkeleton(oriokeCloud);
   const cloudMaterials=[];
   if(cloud){
@@ -2563,6 +2569,19 @@ function update(dt,measure=false){
     }
   }
   if(orioke){
+    // face() plants the root and trusts the model's feet to sit on it, which
+    // holds for the hero models. This stand-in is posed by ref_control_orioke,
+    // which carries the body lower as it plays, so the character ended up buried.
+    // Lift it back whenever its foot bone would go under the floor; never push
+    // it down, so the pose keeps whatever lift it asks for.
+    const oriokeStand=player.root.sockets?.LFoot??player.root.sockets?.RFoot;
+    if(oriokeStand&&!player.wall){
+      const floor=world.floorY(player.pos);
+      if(floor!==null){
+        const sunk=floor-oriokeStand.getWorldPosition(oriokeFoot).y;
+        if(sunk>0)player.root.position.y+=sunk;
+      }
+    }
     const p=player.pos.clone().add(new T.Vector3(0,14,0));
     if(orioke.cloud){
       orioke.cloud.position.copy(player.pos);orioke.cloud.quaternion.copy(player.root.quaternion);orioke.cloudMixer.update(dt);

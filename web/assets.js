@@ -52,7 +52,7 @@ function rgbaTexture(d, pixels, palette, width, height, masked=false){
     data[p]=colors[c];data[p+1]=colors[c+1];data[p+2]=colors[c+2];data[p+3]=masked&&src[i]===255?0:255;
   }
   const t=new T.DataTexture(data,width,height);
-  t.colorSpace=T.SRGBColorSpace;t.anisotropy=8;t.wrapS=t.wrapT=T.RepeatWrapping;
+  t.colorSpace=T.SRGBColorSpace;t.anisotropy=16;t.wrapS=t.wrapT=T.RepeatWrapping;
   t.magFilter=T.LinearFilter;t.minFilter=T.LinearMipmapLinearFilter;t.generateMipmaps=true;t.needsUpdate=true;
   return t;
 }
@@ -526,7 +526,7 @@ async function addMapModels(files,group,name){
         if(diffuse.has(material))return diffuse.get(material);
         const map=material.map??null;
         const foliage=/leaf|leav|foliage|bboard/i.test(map?.name??'')||/leaf|leav|foliage|bboards|\/bbrd\./i.test(path);
-        if(map){map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;}
+        if(map){map.colorSpace=T.SRGBColorSpace;map.anisotropy=16;}
         const next=new T.MeshLambertMaterial({
           color:map?0xffffff:material.color,map,side:T.DoubleSide,
           alphaMap:foliage?null:material.alphaMap??null,
@@ -599,7 +599,9 @@ export function waterMaterial(options){
   const material=new T.MeshPhongMaterial({
     normalScale:new T.Vector2(.85,.85),specular:0xc4e9f5,shininess:90,
     reflectivity:.85,combine:T.MixOperation,side:T.DoubleSide,
-    transparent:true,opacity:200/255,depthWrite:false,...options
+    // Dense enough that looking down shows the surface rather than the terrain
+    // underneath; the Fresnel term closes the last of it towards the far shore.
+    transparent:true,opacity:.93,depthWrite:false,...options
   });
   material.onBeforeCompile=shader=>{
     shader.uniforms.waterTime={value:0};
@@ -685,7 +687,7 @@ export async function loadCharacter(files,name){
     if(!url)return;
     const texture=await loader.loadAsync(url).catch(()=>null);
     if(!texture)return;
-    texture.colorSpace=T.SRGBColorSpace;texture.flipY=false;texture.anisotropy=8;
+    texture.colorSpace=T.SRGBColorSpace;texture.flipY=false;texture.anisotropy=16;
     texture.needsUpdate=true;
     material.map?.dispose();material.map=texture;
   }));

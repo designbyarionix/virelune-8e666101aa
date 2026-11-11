@@ -31,7 +31,21 @@ let techniqueOrb=null,chargeClone=null,healing=null,focusMode=false,lastStride=0
 const maxChakra=10000;
 for(const [id,h] of Object.entries(heroes))$('character').add(new Option(h.label,id));
 for(const id of maps)$('map').add(new Option(names[id],id));
-$('map').value='chuninfinals';
+// Chunin Finals and Monument ship a second lighting pass of the same arena, so
+// open on whichever matches the player's clock. Chunin Finals has only a dusk
+// build and Monument only a night one, so each covers both evening bands.
+// Choosing from the list still wins; this only picks the starting selection,
+// and LAN stays on the day build so everyone in a room sees the same arena.
+const timeVariants={chuninfinals:{dusk:'chuninfinals_dusk',night:'chuninfinals_dusk'},
+  monument:{dusk:'monument_night',night:'monument_night'}};
+function timeOfDay(hour=new Date().getHours()){
+  return hour>=21||hour<6?'night':hour>=18?'dusk':'day';
+}
+function mapForNow(base){
+  const variant=timeVariants[base]?.[timeOfDay()];
+  return variant&&maps.includes(variant)?variant:base;
+}
+$('map').value=mapForNow('chuninfinals');
 
 const touch=new URLSearchParams(location.search).has('touch')||
   (globalThis.matchMedia?.('(pointer: coarse)').matches??false);

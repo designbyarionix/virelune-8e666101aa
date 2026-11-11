@@ -7,11 +7,11 @@ import {maps,loadMap,loadCharacter,loadWeaponModel,loadPakkun,loadKawarimiLog,lo
 
 const $=id=>document.getElementById(id);
 const heroes={
-  naruto:{label:'Naruto',color:0xffa034,skills:{DSW:['Rasengan',30,'rush'],WS:['Kage Bunshin',35,'clone'],DW:['Orioke',20,'stun'],ADW:['Rasenshuriken',35,'rasenshuriken']}},
-  sasuke:{label:'Sasuke',color:0xc692ff,skills:{ADS:['Katon Goukakyuu',30,'fire'],SDA:['Katon Housenka',20,'volley'],WSD:['Chidori',30,'rush']}},
-  kakashi:{label:'Kakashi',color:0x91b9ff,skills:{DW:['Kuchiyose',25,'summon'],WS:['Kage Bunshin',35,'clone'],WSD:['Raikiri',30,'rush']}},
-  sakura:{label:'Sakura',color:0xff8bb5,skills:{DSW:['Chakra Concentration',15,'boost'],WS:['Healing Jutsu',22,'heal'],SA:['Bunshin',20,'clone']}},
-  anbu:{label:'ANBU',color:0xd1dbdd,skills:{ADS:['Katon',30,'fire'],DW:['Shunshin',25,'rush']}}
+  naruto:{label:'Naruto',color:0xffa034,skills:{DSW:['Rasengan',30,'rush'],WS:['Kage Bunshin',35,'clone'],DW:['Orioke',20,'stun'],ADW:['Rasenshuriken',35,'rasenshuriken'],SWD:['Oodama Rasengan',40,'ougi']}},
+  sasuke:{label:'Sasuke',color:0xc692ff,skills:{ADS:['Katon Goukakyuu',30,'fire'],SDA:['Katon Housenka',20,'volley'],WSD:['Chidori',30,'rush'],DAW:['Chidori Nagashi',40,'ougi']}},
+  kakashi:{label:'Kakashi',color:0x91b9ff,skills:{DW:['Kuchiyose',25,'summon'],WS:['Kage Bunshin',35,'clone'],WSD:['Raikiri',30,'rush'],SAD:['Raikiri Rendan',40,'ougi']}},
+  sakura:{label:'Sakura',color:0xff8bb5,skills:{DSW:['Chakra Concentration',15,'boost'],WS:['Healing Jutsu',22,'heal'],SA:['Bunshin',20,'clone'],ADS:['Shannaro',40,'ougi']}},
+  anbu:{label:'ANBU',color:0xd1dbdd,skills:{ADS:['Katon',30,'fire'],DW:['Shunshin',25,'rush'],SWA:['Katon Gouryuuka',40,'ougi']}}
 };
 const names={academy:'Academy',monument:'Monument',chuninfinals:'Chunin Finals',chuninfinals_dusk:'Chunin Finals · Dusk',kyuubilair:'Kyuubi Lair',monument_night:'Monument · Night',preliminary:'Preliminary',voltage_courtyard:'Voltage · Двор',voltage_fortress:'Voltage · Крепост',voltage_village:'Voltage · Село Коноха',voltage_market:'Voltage · Пазарът на Коноха',storm_river:'Storm 2 · Речна арена',storm_forest:'Storm 2 · Горска арена',storm_sand:'Storm 2 · Пясъчна арена'};
 const weapons=[
@@ -223,7 +223,7 @@ if(lanAccess){
 function message(s){$('notice').textContent=s;noticeUntil=now+2.6;}
 function updateStatus(text){$('status').textContent=text;}
 const cutInDuration=7/6;
-let cutInUntil=0,battleStarts=0,cinematicUntil=0,pendingRasenshuriken=null;
+let cutInUntil=0,battleStarts=0,cinematicUntil=0,pendingRasenshuriken=null,pendingOugi=null;
 function showJutsuCutIn(name){
   const banner=$('jutsu-cut-in');
   const portrait=$('cut-in-image');
@@ -536,7 +536,7 @@ document.addEventListener('keydown',e=>{
     combo=(now<sealUntil?combo:'')+e.code.at(-1);
     while(combo&&!patterns.some(pattern=>pattern.startsWith(combo)))combo=combo.slice(1);
     sealUntil=now+2;
-    if(combo)sound('jutsu/Seal_'+combo.length+'.wav',.26);
+    if(combo)sound('jutsu/Seal_'+Math.min(combo.length,3)+'.wav',.26);
     if(skills[combo]){
       prepare(skills[combo]);combo='';
     }else message(combo?'Печати · '+combo:'Невалиден печат · P за комбинациите');
@@ -758,7 +758,8 @@ function refreshTouchTechniques(skills){
   for(const skill of skills){
     const button=document.createElement('button');
     button.type='button';button.title=skill[0];button.setAttribute('aria-label',skill[0]);
-    const glyph={Orioke:'変',Shunshin:'ϟ',Rasenshuriken:'✦'}[skill[0]];
+    // Ultimates share one mark rather than each needing art drawn for it.
+    const glyph=skill[2]==='ougi'?'奥':{Orioke:'変',Shunshin:'ϟ',Rasenshuriken:'✦'}[skill[0]];
     const icon=document.createElement(glyph?'span':'img');
     if(glyph){
       icon.className='touch-technique-glyph';icon.textContent=glyph;icon.setAttribute('aria-hidden','true');
@@ -1091,7 +1092,7 @@ $('play').onclick=async()=>{
     $('combat-feedback').hidden=true;
     $('hud').hidden=false;$('training').hidden=false;
     battleStarts=mode==='lan'?0:now+.8;
-    cinematicUntil=0;pendingRasenshuriken=null;
+    cinematicUntil=0;pendingRasenshuriken=null;pendingOugi=null;
     $('battle-intro').hidden=!battleStarts;
     $('battle-ready').hidden=false;$('battle-go').hidden=true;
     refreshTech();updateHUD();updateStatus('Тренировъчен мач · F8 отваря менюто.');
@@ -1967,6 +1968,16 @@ function attack(secondary){
   attackUntil=now+rules.sv_primary_swing_delay;
   strikeTarget(false);
 }
+function nearestOpponent(range){
+  let best=null,closest=range*range;
+  for(const bot of opponents()){
+    if(bot.dead||!enemies(player,bot))continue;
+    const distance=bot.pos.distanceToSquared(player.pos);
+    if(distance>=closest||!visibleBetween(player.pos,bot.pos))continue;
+    closest=distance;best=bot;
+  }
+  return best;
+}
 function cast(skill,charge=0,secondary=false){
   if(perf)beginPerfCast(true);
   const [label,,type]=skill;
@@ -1974,14 +1985,20 @@ function cast(skill,charge=0,secondary=false){
     heal:rules.sv_healing_chakra_consumption,stun:rules.sv_orioke_chakra_consumption,
     boost:secondary?rules.sv_focus_strength_kick_chakra_consumption:rules.sv_focus_strength_punch_chakra_consumption,summon:rules.sv_pakkun_chakra_consumption,
     clone:label==='Bunshin'?rules.sv_bunshin_chakra_consumption:rules.sv_kagebunshin_chakra_consumption,
+    ougi:6500,
     rush:Math.round(charge*1000*(label==='Rasengan'?rules.sv_rasengan_charge_chakra_consumption:rules.sv_chidori_charge_chakra_consumption))};
   const cost=costs[type];
+  // The ultimate needs something to land on. Checking before the chakra is spent
+  // means a mistimed one costs nothing rather than emptying most of the bar.
+  const ougiTarget=type==='ougi'?nearestOpponent(430):null;
+  if(type==='ougi'&&!ougiTarget){message('Няма цел за '+label);return;}
   if(!unlimited()&&player.chakra<cost){message('Недостатъчно чакра');return;}
   if(!unlimited())player.chakra-=cost;
   prepared=null;message(label+'!');showJutsuCutIn(label);
   const pose={rasenshuriken:'ref_shoot_shuriken',fire:player.ground?'ref_gouk_shoot':'air_gouk_shoot',volley:'ref_hous_shoot',
     rush:label==='Rasengan'?'ref_rasengan_thrust':'ref_chidori_thrust',heal:'ref_seal_heal',boost:secondary?'ref_powerkick_start':'ref_powerpunch',
-    summon:'ref_tsuiga',stun:'jutsu_seal_idle',clone:label==='Bunshin'?'jutsu_seal_idle':'ref_seal_kagebunshin'}[type];
+    summon:'ref_tsuiga',stun:'jutsu_seal_idle',clone:label==='Bunshin'?'jutsu_seal_idle':'ref_seal_kagebunshin',
+    ougi:'forward_strong3'}[type];
   if(pose)playPose(player,pose);
   const dir=aim(),color=heroes[player.id].color;
   const sounds={fire:'Gouk_Shoot',volley:'Hous_Shoot',heal:'Heal_Loop',stun:'Orioke',boost:'Power_Punch',
@@ -2029,6 +2046,14 @@ function cast(skill,charge=0,secondary=false){
     orioke.start=now;orioke.end=now+duration;orioke.originalRoot=originalRoot;
     playPose(player,'ref_control_orioke',duration,true);
     visual(player.pos,0xf4e6df,26,.55,'poof');
+  }else if(type==='ougi'){
+    // The cut-in and the camera swing already exist for every cast; the ultimate
+    // just holds them longer and lands one heavy hit when the wind-up finishes.
+    cinematicUntil=now+1.15;
+    sound('jutsu/Rasengan_Spin.wav',.45);
+    visual(player.pos,color,36,.75,'boost');
+    visual(player.pos.clone().addScaledVector(dir,30),color,26,.6,'chakraFocus');
+    pendingOugi={at:now+.62,target:ougiTarget,label};
   }else if(type==='boost'){
     visual(player.pos,0x83c8ff,22,.55,'boost');
     if(secondary){
@@ -2528,6 +2553,24 @@ function update(dt,measure=false){
   if(pendingRasenshuriken&&now>=pendingRasenshuriken.at){
     projectile(pendingRasenshuriken.direction,0xa4eaff,42,player,820,158,'rasenshuriken');
     pendingRasenshuriken=null;
+  }
+  if(pendingOugi&&now>=pendingOugi.at){
+    const {target,label}=pendingOugi;
+    pendingOugi=null;
+    if(target&&!target.dead){
+      const toward=target.pos.clone().sub(player.pos).setY(0).normalize();
+      player.pos.addScaledVector(toward,Math.max(0,player.pos.distanceTo(target.pos)-46));
+      damage(target,58);
+      sound('jutsu/Rasengan_Hit.wav',.55);
+      visual(target.pos,0xc0edff,48,.6,'rasenShockwave');
+      visual(target.pos,0x98deff,44,.5,label.startsWith('Katon')?'fireball':'rasenganHit');
+      visual(target.pos,0xffd2a0,30,.45,'powerHit');
+      if(!target.dead){
+        playPose(target,'ref_rasengan_knockback_hit',.95);
+        target.impulse.addScaledVector(toward,340);
+      }
+      cinematicUntil=Math.max(cinematicUntil,now+.45);
+    }
   }
   updateWater(swimming,walking);
   updateFocusEffect();

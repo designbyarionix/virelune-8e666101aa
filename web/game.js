@@ -7,7 +7,7 @@ import {maps,loadMap,loadCharacter,loadWeaponModel,loadPakkun,loadKawarimiLog,lo
 
 const $=id=>document.getElementById(id);
 const heroes={
-  naruto:{label:'Naruto',color:0xffa034,skills:{DSW:['Rasengan',30,'rush'],WS:['Kage Bunshin',35,'clone'],DW:['Orioke',20,'stun'],ADW:['Rasenshuriken',35,'rasenshuriken'],SWD:['Oodama Rasengan',40,'ougi']}},
+  naruto:{label:'Naruto',color:0xffa034,skills:{DSW:['Rasengan',30,'rush'],WS:['Kage Bunshin',35,'clone'],DW:['Orioke',20,'stun'],ADW:['Rasenshuriken',35,'rasenshuriken'],SWD:['Shinobi Handbook',40,'handbook']}},
   sasuke:{label:'Sasuke',color:0xc692ff,skills:{ADS:['Katon Goukakyuu',30,'fire'],SDA:['Katon Housenka',20,'volley'],WSD:['Chidori',30,'rush'],DAW:['Chidori Nagashi',40,'ougi']}},
   kakashi:{label:'Kakashi',color:0x91b9ff,skills:{DW:['Kuchiyose',25,'summon'],WS:['Kage Bunshin',35,'clone'],WSD:['Raikiri',30,'rush'],SAD:['Raikiri Rendan',40,'ougi']}},
   sakura:{label:'Sakura',color:0xff8bb5,skills:{DSW:['Chakra Concentration',15,'boost'],WS:['Healing Jutsu',22,'heal'],SA:['Bunshin',20,'clone'],ADS:['Shannaro',40,'ougi']}},
@@ -81,6 +81,7 @@ addEventListener('resize',resize);resize();
 
 let files,world,actors,player,score=0,paused=true,busy=false,noticeUntil=0,now=0;
 let botList=[],effects=[],shots=[],allies=[],models=new Map();
+let handbook=null,handbookClones=[];
 let kawarimiLog=null,substitutionLogs=[];
 let rasenganChargeModel=null,pendingThrow=null;
 let focusSprites=[],oriokeVisual=null;
@@ -1060,7 +1061,7 @@ $('play').onclick=async()=>{
     radar=makeRadar(renderer,scene,$('radar-map'),world);
     actors=new T.Group();scene.add(actors);actors.add(root);
     player={id,name:join?sessionName:null,root,pos:new T.Vector3(),hp:100,team:0,kills:0,deaths:0,chakra:maxChakra,stamina:100,staminaUsed:-100,ammo:weapons.map(w=>w.ammo),dy:0,ground:false};
-    botList=[];effects=[];shots=[];allies=[];orioke=null;score=0;prepared=null;attackUntil=0;focusMode=false;charged=null;heavy=null;healing=null;locked=null;chain=0;lastHit=0;secondaryUntil=0;lastStride=0;
+    botList=[];effects=[];shots=[];allies=[];handbook=null;handbookClones=[];orioke=null;score=0;prepared=null;attackUntil=0;focusMode=false;charged=null;heavy=null;healing=null;locked=null;chain=0;lastHit=0;secondaryUntil=0;lastStride=0;
     substitutionLogs=[];pendingThrow=null;focusSprites=[];$('bot-names').replaceChildren();
     player.spawn=join?join.slot%(world.spawns.filter(s=>s.combat).length||world.spawns.length):initialSpawn();
     spawn(player,player.spawn);yaw=T.MathUtils.degToRad(world.spawns[player.spawn].angle);pitch=-.17;cameraDistance=cameraZoom;
@@ -1351,7 +1352,7 @@ function snapshotVisuals(source,target){
   target.length=source.length;
   for(let i=0;i<source.length;i++)target[i]=source[i];
 }
-const visuals=new Pools({maxLive:40,maxPerFrame:8,limits:{clone:4,shot:12,wave:6}});
+const visuals=new Pools({maxLive:46,maxPerFrame:16,limits:{clone:4,shot:12,wave:6,handbook:7}});
 const waveNames=new Set(['rasenShockwave','ripple']);
 const effectKey=name=>'effect:'+name;
 function hidePooled(item,list){
@@ -1470,6 +1471,12 @@ function disposePersistentVisuals(){
   for(const material of oriokeVisual.cloudMaterials)material.dispose();
   oriokeVisual=null;
 }
+// The Shinobi Handbook lines up more clones than Kage Bunshin is allowed, so it
+// draws from its own pool and group rather than competing for the same four.
+function registerHandbookPool(actor){
+  actor.handbookKey??=Symbol('handbook');
+  registerActorVisual(actor.handbookKey,actor.root,7,'handbook',()=>handbookClones);
+}
 function registerClonePool(actor){
   actor.clonePoolKey??=Symbol('clone');
   registerActorVisual(actor.clonePoolKey,actor.root,3,'clone',()=>allies);
@@ -1479,6 +1486,7 @@ function buildVisualPools(){
   for(const [name,sprite] of sprites)registerEffect(name,sprite);
   if(sprites.has('chakraFocus'))registerEffect('chakraGlow',sprites.get('chakraFocus'));
   for(const actor of [player,...botList])registerClonePool(actor);
+  registerHandbookPool(player);
   registerActorVisual('summon',pakkun??player.root,1,'clone',()=>allies);
   registerActorVisual('log',kawarimiLog,8,undefined,()=>substitutionLogs);
   for(const kind of ['bolt','fire','volley','rasenshuriken',...weapons.map(weapon=>weapon.id)])registerShot(kind);
@@ -1968,6 +1976,72 @@ function attack(secondary){
   attackUntil=now+rules.sv_primary_swing_delay;
   strikeTarget(false);
 }
+// Naruto lines his clones up between himself and the target and they strike in a
+// running wave, then he comes through the line for the finish. The models carry no
+// animation for holding another character, so the chain is made of placement and
+// timing rather than contact.
+function startHandbook(target){
+  releaseHandbook();
+  const toward=target.pos.clone().sub(player.pos).setY(0);
+  const span=Math.max(110,toward.length());
+  toward.normalize();
+  const side=new T.Vector3(-toward.z,0,toward.x);
+  const poses=['forward_strong1','punch3','forward_strong2','kick2','punch5','up_strong2','forward_strong3'];
+  const steps=[];
+  for(let index=0;index<7;index++){
+    const clone=visuals.acquire(player.handbookKey);
+    if(!clone)break;
+    clone.pos.copy(player.pos).addScaledVector(toward,span*(index+1)/9)
+      .addScaledVector(side,(index%2?1:-1)*24);
+    clone.feetOffset=player.feetOffset;clone.ground=true;clone.wall=null;clone.floorProbe=null;
+    clone.pose=null;clone.action=null;clone.playingPose=0;
+    clone.mesh.visible=true;
+    face(clone,toward);
+    visual(clone.pos,0xf4e6df,20,.4,'poof');
+    handbookClones.push(clone);
+    steps.push({clone,at:now+.34+index*.1,pose:poses[index],done:false});
+  }
+  if(!steps.length)return;
+  sound('player/'+player.id+'/Kagebunshin.wav',.5);
+  handbook={target,toward,steps,finishAt:steps.at(-1).at+.26,finished:false,endAt:0};
+  cinematicUntil=Math.max(cinematicUntil,handbook.finishAt+.5);
+}
+function releaseHandbook(){
+  for(const clone of handbookClones.slice())visuals.release(clone.key,clone);
+  handbookClones.length=0;
+}
+function updateHandbook(dt){
+  const {target,toward}=handbook;
+  if(!target||target.dead||(handbook.finished&&now>=handbook.endAt)){
+    for(const clone of handbookClones)visual(clone.pos,0xf4e6df,18,.35,'poof');
+    releaseHandbook();
+    handbook=null;
+    return;
+  }
+  for(const step of handbook.steps){
+    if(step.done||now<step.at)continue;
+    step.done=true;
+    playPose(step.clone,step.pose,.45);
+    damage(target,5);
+    sound('taijutsu/Hit_1.wav',.26);
+    visual(target.pos,0xffd9a0,18,.24,'powerHit');
+    if(!target.dead)target.impulse.addScaledVector(toward,34);
+  }
+  for(const clone of handbookClones)animate(clone,'idle',dt);
+  if(handbook.finished||now<handbook.finishAt)return;
+  handbook.finished=true;
+  handbook.endAt=now+.55;
+  player.pos.addScaledVector(toward,Math.max(0,player.pos.distanceTo(target.pos)-44));
+  playPose(player,'ref_rasengan_thrust',.8);
+  damage(target,26);
+  sound('jutsu/Rasengan_Hit.wav',.55);
+  visual(target.pos,0xc0edff,46,.6,'rasenShockwave');
+  visual(target.pos,0x98deff,42,.5,'rasenganHit');
+  if(!target.dead){
+    playPose(target,'ref_rasengan_knockback_hit',.95);
+    target.impulse.addScaledVector(toward,320);
+  }
+}
 function nearestOpponent(range){
   let best=null,closest=range*range;
   for(const bot of opponents()){
@@ -1985,20 +2059,21 @@ function cast(skill,charge=0,secondary=false){
     heal:rules.sv_healing_chakra_consumption,stun:rules.sv_orioke_chakra_consumption,
     boost:secondary?rules.sv_focus_strength_kick_chakra_consumption:rules.sv_focus_strength_punch_chakra_consumption,summon:rules.sv_pakkun_chakra_consumption,
     clone:label==='Bunshin'?rules.sv_bunshin_chakra_consumption:rules.sv_kagebunshin_chakra_consumption,
-    ougi:6500,
+    ougi:6500,handbook:6500,
     rush:Math.round(charge*1000*(label==='Rasengan'?rules.sv_rasengan_charge_chakra_consumption:rules.sv_chidori_charge_chakra_consumption))};
   const cost=costs[type];
   // The ultimate needs something to land on. Checking before the chakra is spent
   // means a mistimed one costs nothing rather than emptying most of the bar.
-  const ougiTarget=type==='ougi'?nearestOpponent(430):null;
-  if(type==='ougi'&&!ougiTarget){message('Няма цел за '+label);return;}
+  const ultimate=type==='ougi'||type==='handbook';
+  const ougiTarget=ultimate?nearestOpponent(430):null;
+  if(ultimate&&!ougiTarget){message('Няма цел за '+label);return;}
   if(!unlimited()&&player.chakra<cost){message('Недостатъчно чакра');return;}
   if(!unlimited())player.chakra-=cost;
   prepared=null;message(label+'!');showJutsuCutIn(label);
   const pose={rasenshuriken:'ref_shoot_shuriken',fire:player.ground?'ref_gouk_shoot':'air_gouk_shoot',volley:'ref_hous_shoot',
     rush:label==='Rasengan'?'ref_rasengan_thrust':'ref_chidori_thrust',heal:'ref_seal_heal',boost:secondary?'ref_powerkick_start':'ref_powerpunch',
     summon:'ref_tsuiga',stun:'jutsu_seal_idle',clone:label==='Bunshin'?'jutsu_seal_idle':'ref_seal_kagebunshin',
-    ougi:'forward_strong3'}[type];
+    ougi:'forward_strong3',handbook:'ref_seal_kagebunshin'}[type];
   if(pose)playPose(player,pose);
   const dir=aim(),color=heroes[player.id].color;
   const sounds={fire:'Gouk_Shoot',volley:'Hous_Shoot',heal:'Heal_Loop',stun:'Orioke',boost:'Power_Punch',
@@ -2046,6 +2121,8 @@ function cast(skill,charge=0,secondary=false){
     orioke.start=now;orioke.end=now+duration;orioke.originalRoot=originalRoot;
     playPose(player,'ref_control_orioke',duration,true);
     visual(player.pos,0xf4e6df,26,.55,'poof');
+  }else if(type==='handbook'){
+    startHandbook(ougiTarget);
   }else if(type==='ougi'){
     // The cut-in and the camera swing already exist for every cast; the ultimate
     // just holds them longer and lands one heavy hit when the wind-up finishes.
@@ -2554,6 +2631,7 @@ function update(dt,measure=false){
     projectile(pendingRasenshuriken.direction,0xa4eaff,42,player,820,158,'rasenshuriken');
     pendingRasenshuriken=null;
   }
+  if(handbook)updateHandbook(dt);
   if(pendingOugi&&now>=pendingOugi.at){
     const {target,label}=pendingOugi;
     pendingOugi=null;

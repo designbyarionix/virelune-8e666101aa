@@ -1357,6 +1357,11 @@ function preparePersistentVisuals(){
   if(player.id!=='naruto'||!oriokeModel)return;
   const body=cloneSkeleton(oriokeModel);
   body.animation=oriokeModel.animation;body.animations=oriokeModel.animations;
+  // This body replaces player.root while the jutsu is up, and face() places the
+  // root from the actor's position using the model's own foot offset. Orioke's
+  // differs from the hero's, so without this the character sinks into the floor.
+  body.userData.nativeFeet=player.root.userData.nativeFeet;
+  body.userData.nativeScale=player.root.userData.nativeScale;
   const cloud=oriokeCloud&&cloneSkeleton(oriokeCloud);
   const cloudMaterials=[];
   if(cloud){
@@ -2182,11 +2187,15 @@ function cameraClearance(focus,offset,distance){
 }
 function updateWater(wasSwimming,walking){
   for(const mesh of world.waterMeshes){
-    if(touch&&now<(mesh.userData.waterUpdateAt??0))continue;
-    if(touch)mesh.userData.waterUpdateAt=now+.05;
-    const map=mesh.material.normalMap;
-    if(map)map.offset.set((now*.029)%1,(now*.017)%1);
-    mesh.material.normalScale.set(.84+.11*Math.sin(now*1.6),.83);
+    // The drift moved into the shader, so this is one float per frame and the
+    // phone no longer needs the 20 Hz throttle that made the surface step.
+    const uniforms=mesh.material.userData.waterShader?.uniforms;
+    if(uniforms)uniforms.waterTime.value=now;
+    else{
+      const map=mesh.material.normalMap;
+      if(map)map.offset.set((now*.029)%1,(now*.017)%1);
+    }
+    mesh.material.normalScale.setScalar(.82+.07*Math.sin(now*.9));
   }
   if(!world.waterMeshes.length&&!wasSwimming&&!player.waterWalk)return;
   const swimming=world.water(player.pos);

@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
+import {waterMaterial} from '../assets.js';
 
 const scale=42,cellSize=128,bodyHeight=34;
 const vector=(x,y,z)=>new T.Vector3(x,y,z);
@@ -101,9 +102,11 @@ export async function loadStormMap(name){
     if(helper){mesh.visible=false;return;}
     const inArena=names.some(name=>/^si02bflo00$|^si02b_flo002/i.test(name));
     if(waterNormal&&(inArena||names.some(name=>/si02briver01/i.test(name)))){
-      mesh.material=new T.MeshPhongMaterial({
-        color:0x397e95,normalMap:waterNormal,normalScale:new T.Vector2(.8,.8),
-        reflectivity:.45,specular:0xc2f0ff,shininess:45,side:T.DoubleSide,
+      // Same surface as the GoldSrc maps, but opaque: the river is the arena
+      // floor here and there is nothing modelled underneath to show through.
+      mesh.material=waterMaterial({
+        color:0x397e95,normalMap:waterNormal,
+        transparent:false,opacity:1,depthWrite:true,
         polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1
       });
       waterMeshes.push(mesh);

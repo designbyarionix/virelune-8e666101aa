@@ -545,22 +545,10 @@ async function addMapModels(files,group,name){
             normalMap.wrapS=normalMap.wrapT=T.RepeatWrapping;
             normalMap.repeat.set(16,16);
           }
-          obj.material=new T.MeshPhongMaterial({
+          obj.material=waterMaterial({
             color:name==='nnk_kyuubilair'?0x435440:name.endsWith('_night')?0x28445b:0x3e7885,
-            normalMap,normalScale:new T.Vector2(.85,.85),specular:0xc4e9f5,
-            shininess:45,reflectivity:.5,side:T.DoubleSide,transparent:true,opacity:200/255,depthWrite:false
+            normalMap
           });
-          obj.material.onBeforeCompile=shader=>{
-            const normalChunk=T.ShaderChunk.normal_fragment_maps.replace(
-              'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
-              `float waterDistance = length(vViewPosition);
-               vec3 base = texture2D(normalMap, vNormalMapUv).xyz;
-               vec3 detail = texture2D(normalMap, vNormalMapUv * 4.0).xyz;
-               vec3 mapN = mix(base, detail, 1.0 - clamp(waterDistance / 300.0, 0.0, 1.0)) * 2.0 - 1.0;
-               mapN.xy *= 1.0 - clamp(waterDistance / 1200.0, 0.0, 1.0);`
-            );
-            shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>',normalChunk);
-          };
           waterMeshes.push(obj);
         }else obj.material=Array.isArray(obj.material)?obj.material.map(convert):convert(obj.material);
       });
@@ -604,6 +592,48 @@ async function addMapProps(files,group,entities){
     }
   }));
   return animated;
+}
+// Shared by the GoldSrc maps and the Storm arenas, which load through different
+// paths and had drifted into two different-looking surfaces.
+export function waterMaterial(options){
+  const material=new T.MeshPhongMaterial({
+    normalScale:new T.Vector2(.85,.85),specular:0xc4e9f5,shininess:90,
+    reflectivity:.85,combine:T.MixOperation,side:T.DoubleSide,
+    transparent:true,opacity:200/255,depthWrite:false,...options
+  });
+  material.onBeforeCompile=shader=>{
+    shader.uniforms.waterTime={value:0};
+    shader.fragmentShader='uniform float waterTime;\n'+shader.fragmentShader;
+    // One scrolling normal map reads as sliding wallpaper. Drifting two copies
+    // apart at different scales and angles keeps making new crests, and a third
+    // fine layer close to the camera carries the ripples.
+    const normalChunk=T.ShaderChunk.normal_fragment_maps.replace(
+      'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+      `float waterDistance = length(vViewPosition);
+       vec2 swellDrift = vec2(waterTime * 0.021, waterTime * 0.013);
+       vec2 crossDrift = vec2(waterTime * -0.017, waterTime * 0.026);
+       vec3 swell = texture2D(normalMap, vNormalMapUv + swellDrift).xyz;
+       vec3 chop = texture2D(normalMap, vNormalMapUv * 1.7 + crossDrift).xyz;
+       vec3 detail = texture2D(normalMap, vNormalMapUv * 4.0 - swellDrift * 2.3).xyz;
+       float closeness = 1.0 - clamp(waterDistance / 300.0, 0.0, 1.0);
+       vec3 waves = mix(swell, chop, 0.45);
+       waves = mix(waves, detail, closeness * 0.5);
+       vec3 mapN = waves * 2.0 - 1.0;
+       mapN.xy *= 1.0 - clamp(waterDistance / 1200.0, 0.0, 1.0);`
+    );
+    shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>',normalChunk);
+    // Water looks through at your feet and mirrors the sky at the far shore.
+    // Weighting both the sky reflection and the opacity by the Fresnel term is
+    // what separates it from a tinted sheet of glass.
+    shader.fragmentShader=shader.fragmentShader.replace(
+      'outgoingLight = mix( outgoingLight, envColor.xyz, specularStrength * reflectivity );',
+      `float waterFresnel = pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 4.0 );
+       outgoingLight = mix( outgoingLight, envColor.xyz, clamp( reflectivity * ( 0.08 + 0.92 * waterFresnel ), 0.0, 1.0 ) );
+       diffuseColor.a = clamp( diffuseColor.a + waterFresnel * 0.45, 0.0, 1.0 );`
+    );
+    material.userData.waterShader=shader;
+  };
+  return material;
 }
 export async function loadSky(files,sky){
   if(!sky)return null;
@@ -894,7 +924,10 @@ async function decodeXpr(files,path,compact){
     const size=d.getUint32(at+22,true),names=ushort(d,at+26),extra=ushort(d,at+28);
     const name=str(d,at+30,names),offset=at+30+names+extra;
     if(flags&9||offset+length>d.byteLength||size>2e6||entries.length>=48)throw Error('Неподдържан XPR архив');
-    if(/\.png$/i.test(name)&&(method===0||method===8))entries.push({name,method,size,offset,length});
+    // tools/repack-xpr-webp.mjs rewrites these archives with WebP frames, which are
+    // about a quarter the size. Archives still holding PNG frames load unchanged.
+    const type=/\.png$/i.test(name)?'image/png':/\.webp$/i.test(name)?'image/webp':null;
+    if(type&&(method===0||method===8))entries.push({name,type,method,size,offset,length});
     at=offset+length;
   }
   if(!entries.length)throw Error('Липсват кадри в XPR');
@@ -902,14 +935,14 @@ async function decodeXpr(files,path,compact){
   const selected=compact&&entries.length>compact.frames?
     Array.from({length:compact.frames},(_,i)=>entries[Math.round(i*(entries.length-1)/(compact.frames-1))]):entries;
   const loader=new T.TextureLoader();
-  const frames=await Promise.all(selected.map(async ({method,size,offset,length})=>{
+  const frames=await Promise.all(selected.map(async ({type,method,size,offset,length})=>{
     const bytes=new Uint8Array(d.buffer,d.byteOffset+offset,length);
-    let image=new Blob([bytes],{type:'image/png'});
+    let image=new Blob([bytes],{type});
     if(method===8){
       const stream=image.stream().pipeThrough(new DecompressionStream('deflate-raw'));
       const data=await new Response(stream).arrayBuffer();
       if(data.byteLength!==size)throw Error('Повреден XPR кадър');
-      image=new Blob([data],{type:'image/png'});
+      image=new Blob([data],{type});
     }
     const url=URL.createObjectURL(image);
     try{

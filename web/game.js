@@ -318,7 +318,7 @@ function updateRosterSelection(){
   }
 }
 function shiftRoster(direction){
-  if(busy)return;
+  if(busy||(titlePreview&&titlePreview.cast.length<titleRoster.length))return;
   rosterStart=(rosterStart+direction+titleRoster.length)%titleRoster.length;
   $('character').value=visibleHero(1);
   updateRosterSelection();
@@ -338,9 +338,24 @@ $('character').addEventListener('change',()=>{
   }
   updateRosterSelection();
 });
+// The arrows reach heroes who are not on the podium, so fetch them behind the
+// finished screen instead of making the player wait for them, and keep the
+// arrows off until the roster can actually rotate.
+async function loadRestOfRoster(){
+  const arrows=[$('roster-prev'),$('roster-next')];
+  for(const arrow of arrows)arrow.disabled=true;
+  for(const id of titleRoster.slice(3)){
+    const root=await model(id).catch(error=>{console.warn('NNK roster',id,error.message);return null;});
+    if(!titlePreview)return;
+    if(root)titlePreview.cast.push(titlePreview.addActor(root,titlePreview.cast.length));
+    await breathe();
+  }
+  if(titlePreview)for(const arrow of arrows)arrow.disabled=false;
+}
 function closeTitlePreview(){
   if(!titlePreview)return;
   titleGreeted=null;
+  for(const id of ['roster-prev','roster-next'])$(id).disabled=false;
   disposeTree(titlePreview.map.group);
   titlePreview.shadowGeometry.dispose();
   titlePreview.shadowMaterial.dispose();
@@ -357,17 +372,18 @@ async function startTitlePreview(){
   loadingProgress(10,'Зареждам Chunin Finals…');
   let map;
   try{
+    // The arena and the heroes come off the network independently, so start the
+    // three on the podium alongside the map rather than after it. The other two
+    // are only reachable through the arrows and follow once the screen is up.
+    const waiting=titleRoster.slice(0,3).map(id=>model(id));
     map=await loadMap(files,'chuninfinals');
     if(world||busy){disposeTree(map.group);return;}
-    loadingProgress(48,'Зареждам героите…');
-    // Parsing five models at once pins the main thread for one long burst, so
-    // the screen sat frozen and then jumped. One at a time, letting the browser
-    // draw in between, takes about the same wall clock but stays alive.
+    loadingProgress(62,'Зареждам героите…');
     const models=[];
-    for(const [index,id] of titleRoster.entries()){
-      models.push(await model(id));
+    for(const [index,pending] of waiting.entries()){
+      models.push(await pending);
       if(busy||world)break;
-      loadingProgress(48+Math.round((index+1)/titleRoster.length*40));
+      loadingProgress(62+Math.round((index+1)/waiting.length*26));
       await breathe();
     }
     if(world||busy){disposeTree(map.group);return;}
@@ -381,7 +397,7 @@ async function startTitlePreview(){
     const shadowMaterial=new T.ShaderMaterial({transparent:true,depthWrite:false,
       vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
       fragmentShader:'varying vec2 vUv; void main(){float d=length((vUv-.5)*2.);gl_FragColor=vec4(.06,.04,.02,.36*(1.-smoothstep(.15,1.,d)));}'});
-    const cast=models.map((root,index)=>{
+    const addActor=(root,index)=>{
       const position=new T.Vector3(index===1?-67:-47,-328,-160+(index-1)*55);
       const floor=map.floorY(position)??-382;
       position.y=floor+(root.userData.nativeFeet??0);
@@ -395,9 +411,11 @@ async function startTitlePreview(){
       const actor={root,mixer:new T.AnimationMixer(root),shadow,action:null};
       playTitlePose(actor,'char_sel_loop',index*.22);
       return actor;
-    });
+    };
+    const cast=models.map(addActor);
     const slots=cast.slice(0,3).map(actor=>({position:actor.root.position.clone(),rotation:actor.root.rotation.y,floor:actor.shadow.position.y-.35}));
-    titlePreview={stage,map,cast,slots,shadowGeometry,shadowMaterial,camera:new T.PerspectiveCamera(37,1,2,7000),point:new T.Vector3()};
+    titlePreview={stage,map,cast,slots,shadowGeometry,shadowMaterial,addActor,camera:new T.PerspectiveCamera(37,1,2,7000),point:new T.Vector3()};
+    loadRestOfRoster();
     updateRosterSelection();
     $('menu').classList.add('live-title');
     loadingProgress(100,'Избери герой и карта.');

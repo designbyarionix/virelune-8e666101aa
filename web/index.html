@@ -1,9 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>NNK Web · Training Arena</title><link rel="stylesheet" href="style.css?v=40"><link rel="stylesheet" href="arena-ui.css?v=40">
-<link rel="preload" as="image" href="assets/ui/arena/settings.webp">
-<link rel="preload" as="image" href="assets/ui/arena/button-hover.webp">
+<title>NNK Web · Training Arena</title><link rel="stylesheet" href="style.css?v=41"><link rel="stylesheet" href="arena-ui.css?v=41">
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
 </head>
 <body>
@@ -57,13 +55,14 @@
  <div class="title-stage">
 
   <div class="title-copy">
-   <h1><img src="assets/ui/arena/logo.webp" alt="Naruto Arena"></h1>
+   <h1><img src="assets/ui/arena/logo-brush.webp" alt="Naruto Arena"></h1>
    <p id="title-subtitle" class="title-subtitle"></p>
    <div id="lobby-profile" class="settings" hidden><label>Player name <input id="player-name" type="text" maxlength="24" autocomplete="nickname"></label></div>
+   <button id="edit-player-name" type="button" class="player-tag"></button>
    <div class="title-actions">
-    <button id="play" class="arena-button arena-primary" type="button" disabled>Enter Arena <span aria-hidden="true">›</span></button>
+    <button id="play" class="arena-button arena-primary" type="button" disabled>Start Game</button>
     <button id="title-settings" class="arena-button" type="button" aria-controls="arena-settings" aria-expanded="false">Settings</button>
-    <button id="title-lobby" class="arena-button" type="button" aria-haspopup="dialog">Private Room</button>
+    <button id="title-lobby" class="arena-button" type="button" aria-haspopup="dialog">Rooms</button>
    </div>
   </div>
   <div id="title-roster" aria-label="Character selection">
@@ -71,6 +70,7 @@
    <button id="title-hero-naruto" data-hero="naruto" type="button" aria-pressed="true"><span>Naruto</span></button>
    <button id="title-hero-sakura" data-hero="sakura" type="button" aria-pressed="false"><span>Sakura</span></button>
   </div>
+  <div id="hero-strip" aria-label="All characters"></div>
   <div class="roster-navigation" aria-label="Browse characters">
    <button id="roster-prev" type="button" aria-label="Previous character">‹</button>
    <button id="roster-next" type="button" aria-label="Next character">›</button>
@@ -88,74 +88,143 @@
 <div class="settings audio-settings">
 <label>Music and ambience <input id="music-volume" type="range" min="0" max="100" value="55"></label>
 <label>Sound effects <input id="effects-volume" type="range" min="0" max="100" value="80"></label>
-<label>Graphics <select id="graphics-quality"><option value="balanced">Balanced</option><option value="detail">Detail</option><option value="light">Light</option></select></label>
+<label>Graphics <select id="graphics-quality"><option value="balanced">Balanced</option><option value="detail">Detail</option><option value="light">Light</option><option value="native">Native resolution</option></select></label>
 </div>
 <div id="training" hidden><button id="resume">Resume</button><button id="restart-match">New match</button><button id="addbots">+ 3 bots</button><label><input type="checkbox" id="free" checked> Unlimited weapons, chakra and stamina</label><div id="techniques"></div><label>Original animations <select id="sequence"></select></label><button id="preview-sequence">Preview</button></div>
 
  </div>
 </section>
+<dialog id="player-profile" class="title-panel compact-panel" aria-labelledby="profile-title">
+ <h2 id="profile-title">What should we call you?</h2>
+ <form id="profile-form">
+  <label for="profile-name">Player name</label>
+  <input id="profile-name" maxlength="24" autocomplete="nickname" required autofocus>
+  <button type="submit">Continue</button>
+ </form>
+</dialog>
 <dialog id="private-room" class="title-panel lobby-panel" aria-labelledby="room-title">
- <header class="title-panel-header"><h2 id="room-title">Private Room</h2><form method="dialog"><button type="submit" aria-label="Close">×</button></form></header>
+ <header class="title-panel-header"><h2 id="room-title">Rooms</h2><form method="dialog"><button type="submit" aria-label="Close">×</button></form></header>
+ <div class="room-actions">
+  <button id="room-create" type="button">Create room</button>
+  <button id="room-refresh" type="button">Refresh list</button>
+ </div>
+ <ul id="room-list" aria-label="Available rooms"></ul>
  <form id="room-form">
-  <label for="room-name">Player name</label><input id="room-name" maxlength="24" autocomplete="nickname" required>
-  <label for="room-code">Room code</label><input id="room-code" minlength="4" maxlength="24" pattern="[a-zA-Z0-9\-]{4,24}" autocomplete="off" required>
-  <div class="room-actions">
-   <button id="room-generate" type="button">Generate code</button>
-   <button id="room-copy" type="button">Copy invite</button>
-   <button type="submit">Join room</button>
-  </div>
+  <label for="room-code">Join by code</label>
+  <input id="room-code" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="off" placeholder="0000" required>
+  <button type="submit">Join</button>
+  <button id="room-copy" type="button">Copy invite</button>
  </form>
  <p id="room-status" role="status"></p>
 </dialog>
 <script type="module">
+  const profile = document.getElementById('player-profile');
+  const profileName = document.getElementById('profile-name');
+  const playerTag = document.getElementById('edit-player-name');
   const lobby = document.getElementById('private-room');
   const roomCode = document.getElementById('room-code');
-  const roomName = document.getElementById('room-name');
+  const roomList = document.getElementById('room-list');
   const roomStatus = document.getElementById('room-status');
+  const createRoom = document.getElementById('room-create');
   const params = new URLSearchParams(location.search);
-  const roomURL = () => {
-    const url = new URL(location.pathname, location.origin);
-    url.searchParams.set('room', roomCode.value.trim().toLowerCase());
-    return url;
+  let name = '';
+  try { name = localStorage.getItem('nnk-player-name') ?? ''; } catch {}
+  const setName = value => {
+    name = value.trim().replace(/\s+/g, ' ').slice(0, 24);
+    playerTag.textContent = name;
+    profileName.value = name;
+    document.getElementById('player-name').value = name;
   };
-  roomCode.value = params.get('room') ?? '';
-  roomName.value = sessionStorage.getItem('nnk-room-name') ?? '';
-  const openLobby = () => {
-    roomStatus.textContent = 'Requires an arena server at this address.';
+  setName(name);
+  const inviteCode = params.get('room') ?? '';
+  if (/^[0-9]{4}$/.test(inviteCode)) roomCode.value = inviteCode;
+
+  async function roomRequest(method) {
+    const response = await fetch('arena/rooms', {method, cache: 'no-store', signal: AbortSignal.timeout(3000)});
+    if (!response.headers.get('content-type')?.includes('application/json')) {
+      throw Error('Room server is offline on this host.');
+    }
+    const payload = await response.json();
+    if (!response.ok) throw Error(payload.error ?? 'Room server is unavailable.');
+    return payload;
+  }
+
+  async function refreshRooms() {
+    roomStatus.textContent = 'Loading rooms…';
+    try {
+      const {rooms} = await roomRequest('GET');
+      roomList.replaceChildren(...rooms.map(room => {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Room ' + room.code + ' · ' + room.players + '/' + room.capacity;
+        button.disabled = room.players >= room.capacity;
+        button.onclick = () => { roomCode.value = room.code; joinRoom(button); };
+        item.append(button);
+        return item;
+      }));
+      createRoom.disabled = false;
+      roomStatus.textContent = rooms.length ? '' : 'No rooms yet. Create one to get started.';
+    } catch (error) {
+      roomList.replaceChildren();
+      createRoom.disabled = true;
+      roomStatus.textContent = error.message;
+    }
+  }
+
+  function openLobby() {
     lobby.showModal();
+    refreshRooms();
+  }
+  if (!name) profile.showModal();
+  else if (roomCode.value && !params.has('lan')) openLobby();
+  profile.addEventListener('cancel', event => { if (!name) event.preventDefault(); });
+  playerTag.onclick = () => profile.showModal();
+  document.getElementById('profile-form').onsubmit = event => {
+    event.preventDefault();
+    if (!profileName.value.trim()) return;
+    setName(profileName.value);
+    try { localStorage.setItem('nnk-player-name', name); } catch {}
+    profile.close();
+    if (roomCode.value && !params.has('lan') && !lobby.open) openLobby();
   };
   document.getElementById('title-lobby').onclick = openLobby;
-  if (roomCode.value && !params.has('lan')) openLobby();
-  document.getElementById('room-generate').onclick = () => {
-    roomCode.value = Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('');
-    roomStatus.textContent = 'Room code generated. Copy the invite to share it.';
+  document.getElementById('room-refresh').onclick = refreshRooms;
+  createRoom.onclick = async () => {
+    createRoom.disabled = true;
+    try {
+      const {code} = await roomRequest('POST');
+      roomCode.value = code;
+      await refreshRooms();
+      roomStatus.textContent = 'Room ' + code + ' is ready. Join it or copy the invite.';
+    } catch (error) {
+      roomStatus.textContent = error.message;
+    } finally { createRoom.disabled = false; }
   };
   document.getElementById('room-copy').onclick = async () => {
     if (!roomCode.reportValidity()) return;
-    const invite = roomURL().href;
+    const invite = new URL(location.pathname, location.origin);
+    invite.searchParams.set('room', roomCode.value);
     try {
-      await navigator.clipboard.writeText(invite);
+      await navigator.clipboard.writeText(invite.href);
       roomStatus.textContent = 'Invite copied.';
-    } catch {
-      roomStatus.textContent = invite;
-    }
+    } catch { roomStatus.textContent = invite.href; }
   };
-  document.getElementById('room-form').onsubmit = async event => {
-    event.preventDefault();
-    if (!roomName.value.trim()) { roomName.focus(); return; }
-    const submit = event.submitter;
-    submit.disabled = true;
-    roomStatus.textContent = 'Joining the arena…';
+  async function joinRoom(button) {
+    if (!roomCode.reportValidity()) return;
+    button.disabled = true;
+    roomStatus.textContent = 'Joining room ' + roomCode.value + '…';
     try {
-      const {joinPrivateRoom} = await import('./game.js?v=40');
-      await joinPrivateRoom(roomName.value.trim(), roomCode.value.trim().toLowerCase());
-      sessionStorage.setItem('nnk-room-name', roomName.value.trim());
+      const {joinPrivateRoom} = await import('./game.js?v=41');
+      await joinPrivateRoom(name, roomCode.value);
       lobby.close();
     } catch (error) {
       roomStatus.textContent = error.message;
-    } finally {
-      submit.disabled = false;
-    }
+    } finally { button.disabled = false; }
+  }
+  document.getElementById('room-form').onsubmit = event => {
+    event.preventDefault();
+    joinRoom(event.submitter);
   };
 
   const settingsButton = document.getElementById('title-settings');
@@ -176,7 +245,7 @@
   } else {
     const original = status.textContent;
     status.textContent = 'Loading the game…';
-    import('./game.js?v=40').then(() => {
+    import('./game.js?v=41').then(() => {
       if (status.textContent === 'Loading the game…') status.textContent = original;
     }).catch(error => {
       console.error(error);

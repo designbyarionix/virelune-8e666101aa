@@ -81,7 +81,9 @@ const keys=new Set(),taps=new Map();
 const touch=new URLSearchParams(location.search).has('touch')||
   (globalThis.matchMedia?.('(pointer: coarse)').matches??false);
 const quality=$('graphics-quality');
-const qualityLimits={balanced:[1,1.4,1200000],detail:[1,1.6,1600000],light:[.75,1,800000]};
+const qualityLimits=touch
+  ? {balanced:[1,1.4,1200000],detail:[1,1.6,1600000],light:[.75,1,800000],native:[1,2,2400000]}
+  : {balanced:[1,1.5,2600000],detail:[1,1.8,4300000],light:[.75,1,1100000],native:[2,2,8500000]};
 const perfParams=new URLSearchParams(location.search);
 const fixedScale=perfParams.has('perf')?Number(perfParams.get('scale')):0;
 try{quality.value=localStorage.getItem('nnk-graphics')??'balanced';}catch{quality.value='balanced';}
@@ -92,6 +94,10 @@ function resolutionRange(){
   if(fixedScale>=1&&fixedScale<=2){
     const fixed=Math.min(devicePixelRatio,fixedScale);
     return [fixed,fixed];
+  }
+  if(!touch&&quality.value==='native'){
+    const native=Math.min(devicePixelRatio,2);
+    return [native,native];
   }
   const cap=Math.min(devicePixelRatio,maximum,
     Math.sqrt(pixels/(innerWidth*innerHeight)));
@@ -106,16 +112,27 @@ function setResolution(scale){
 quality.onchange=()=>{
   try{localStorage.setItem('nnk-graphics',quality.value);}catch{}
   setResolution(resolutionRange()[1]);
+  setShadowResolution();
   frameWindow.frames=0;
 };
+function setShadowResolution(){
+  if(touch)return;
+  const size=['detail','native'].includes(quality.value)?2048:1024;
+  if(sun.shadow.mapSize.x===size)return;
+  sun.shadow.map?.dispose();
+  sun.shadow.map=null;
+  sun.shadow.mapSize.set(size,size);
+  sun.shadow.needsUpdate=true;
+}
 setResolution(resolutionRange()[1]);
+setShadowResolution();
 addEventListener('resize',()=>{
   const [minimum,maximum]=resolutionRange();
   setResolution(Math.min(maximum,Math.max(minimum,renderScale)));
 });
 if(touch)$('hud').classList.add('touch-hud');
 let radar=null,radarZoom=1,showTouchScore=false;
-const number=new Intl.NumberFormat('bg');
+const number=new Intl.NumberFormat('en');
 $('radar-in').onclick=()=>{radarZoom=Math.min(2.75,radarZoom+.35);};
 $('radar-out').onclick=()=>{radarZoom=Math.max(1,radarZoom-.35);};
 let stickX=0,stickY=0;
@@ -153,7 +170,7 @@ function setActorScale(root){
 }
 const matchParams=new URLSearchParams(location.search);
 let lanAccess=matchParams.has('lan');
-let roomCode=/^[a-z0-9-]{4,24}$/.test(matchParams.get('room')??'')?matchParams.get('room'):null;
+let roomCode=/^[0-9]{4}$/.test(matchParams.get('room')??'')?matchParams.get('room'):null;
 const music=$('music-volume'),effectsVolume=$('effects-volume'),backgroundAudio=[];
 let musicVolume=.55,sfxVolume=.8;
 try{
@@ -191,15 +208,16 @@ function playerName(){
 function sendArena(state){
   return fetch('arena',{method:'POST',headers:{'Content-Type':'application/json'},
     signal:AbortSignal.timeout(3000),body:JSON.stringify(state)}).then(response=>{
-    if(!response.ok)throw Error([404,405,501].includes(response.status)?'No compatible arena server is available at this address.':
-      response.status===409?'The arena is full · 10 of 10':'HTTP '+response.status);
+    if(!response.ok)return response.json().catch(()=>null).then(payload=>{
+      throw Error(payload?.error??([404,405,501].includes(response.status)?'Room server is offline on this host.':'HTTP '+response.status));
+    });
     return response.json();
   });
 }
 if(lanAccess){
   const hero=matchParams.get('hero');
   if(Object.hasOwn(heroes,hero))$('character').value=hero;
-  $('player-name').value=globalThis.sessionStorage?.getItem('nnk-room-name')??'';
+  try{$('player-name').value=localStorage.getItem('nnk-player-name')??'';}catch{}
   $('menu').classList.add('lan-game');
   $('title-subtitle').textContent='Chunin Finals · up to 10 players';
   $('play').firstChild.nodeValue='Start ';
@@ -248,6 +266,24 @@ const titleRoster=['sasuke','naruto','sakura',...Object.keys(heroes).filter(id=>
 let titlePreview=null,titlePreviewLoading=false,rosterStart=0;
 const roster=$('title-roster'),rosterButtons=['sasuke','naruto','sakura'].map(id=>$('title-hero-'+id));
 const visibleHero=index=>titleRoster[(rosterStart+index)%titleRoster.length];
+const portraitButtons=titleRoster.map((id,index)=>{
+  const button=document.createElement('button');
+  button.type='button';
+  button.setAttribute('aria-label',heroes[id].label);
+  button.setAttribute('title',heroes[id].label);
+  const portrait=document.createElement('img');
+  portrait.src=files.url('sprites/vgui/'+id+'.png')??'';
+  portrait.alt='';
+  button.append(portrait);
+  button.onclick=()=>{
+    if(busy)return;
+    rosterStart=(index-1+titleRoster.length)%titleRoster.length;
+    $('character').value=id;
+    updateRosterSelection();
+  };
+  $('hero-strip').append(button);
+  return button;
+});
 function loadingProgress(value,label){
   const bar=$('title-progress');
   bar.value=value;
@@ -255,12 +291,13 @@ function loadingProgress(value,label){
   if(label)updateStatus(label);
 }
 function updateRosterSelection(){
+  for(const [index,button] of portraitButtons.entries())button.setAttribute('aria-pressed',String(titleRoster[index]===$('character').value));
   for(const [index,button] of rosterButtons.entries()){
     const id=visibleHero(index);
     button.dataset.hero=id;
     const portrait=files.url('sprites/vgui/'+id+'.png');
-    button.style.setProperty('--hero-portrait',portrait?'url("'+portrait+'")':'none');
-    button.firstElementChild.textContent=heroes[id].label;
+    button.style.setProperty?.('--hero-portrait',portrait?'url("'+portrait+'")':'none');
+    if(button.firstElementChild)button.firstElementChild.textContent=heroes[id].label;
     button.setAttribute('aria-pressed',String(id===$('character').value));
   }
 }
@@ -278,6 +315,7 @@ roster.addEventListener('click',event=>{
   $('character').value=button.dataset.hero;
   updateRosterSelection();
 });
+updateRosterSelection();
 $('character').addEventListener('change',()=>{
   const index=titleRoster.indexOf($('character').value);
   if(index>=0&&![0,1,2].some(slot=>visibleHero(slot)===$('character').value)){
@@ -697,7 +735,7 @@ function updateHUD(){
   $('touch-weapon-label').textContent=weapon.label;
   $('target').hidden=!locked||!!locked.dead;
   if(locked&&!locked.dead)$('target').textContent=heroes[locked.id].label+' · '+Math.ceil(locked.hp)+' HP';
-  $('score').textContent=lan?'LAN · '+(lan.peers.size+1)+' players'+(lan.ping===undefined?'':' · '+lan.ping+' ms'):score+' wins · '+botList.length+' bots';
+  $('score').textContent=lan?'Online · '+(lan.peers.size+1)+' players'+(lan.ping===undefined?'':' · '+lan.ping+' ms'):score+' wins · '+botList.length+' bots';
   const board=$('scoreboard');board.hidden=!keys.has('Tab')&&!showTouchScore;
   if(!board.hidden){
     const ordered=[player,...opponents()].sort((a,b)=>b.kills-a.kills);
@@ -939,7 +977,7 @@ $('play').onclick=async()=>{
 };
 export async function joinPrivateRoom(name,code){
   if(busy||world)throw Error('Return to the title screen to join a private room.');
-  if(!name||!/^[a-z0-9-]{4,24}$/.test(code))throw Error('Enter a name and a valid room code.');
+  if(!name||!/^[0-9]{4}$/.test(code))throw Error('Enter a name and a valid room code.');
   const previousAccess=lanAccess,previousCode=roomCode;
   lanAccess=true;roomCode=code;
   $('player-name').value=name;

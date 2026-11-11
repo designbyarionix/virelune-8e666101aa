@@ -1,0 +1,160 @@
+:root {
+  --arena-ink: #130d0a;
+  --arena-paper: #fff0cd;
+  --arena-button: url('assets/ui/arena/button.webp');
+  --arena-hover: url('assets/ui/arena/button-hover.webp');
+  --arena-selected: url('assets/ui/arena/button-selected.webp');
+}
+#menu .title-stage { background: var(--arena-ink); }
+#menu.live-title .title-stage { background: transparent; }
+#menu .title-copy {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  margin-left: clamp(12px, 2vw, 44px);
+  padding: clamp(46px, 9vh, 92px) clamp(36px, 6vw, 112px);
+  width: clamp(340px, 37vw, 650px);
+  min-height: min(84vh, 820px);
+  text-align: center;
+  background: url('assets/ui/arena/scroll.webp') center / 100% 100% no-repeat;
+}
+#menu .title-copy h1 {
+  font: 900 clamp(2.35rem, 5vw, 6rem)/.89 Georgia, serif;
+  color: var(--arena-paper);
+  text-shadow: 0 4px #40221a;
+}
+#menu .title-copy h1 img { display: block; width: 100%; height: auto; }
+#menu .title-subtitle:empty { display: none; }
+#menu .title-actions { display: grid; gap: clamp(5px, 1vh, 12px); margin: clamp(12px, 2vh, 22px) 0 0; }
+#menu .title-stage .arena-button,
+#menu .title-panel button,
+#private-room button {
+  min-height: 0;
+  border: 0;
+  box-shadow: none;
+  background: var(--arena-button) center / 100% 100% no-repeat;
+  color: var(--arena-paper);
+  text-shadow: 0 2px 3px #100600;
+}
+#menu .title-stage .arena-button {
+  display: block;
+  width: 100%;
+  min-height: clamp(40px, 6.8vh, 80px);
+  padding: .62em 1.12em;
+  font: 700 clamp(.93rem, 1.6vw, 1.55rem)/1.1 Georgia, serif;
+}
+#menu .title-stage #play, #menu .title-panel #resume { background-image: var(--arena-selected); }
+#menu .title-stage .arena-button:hover,
+#menu .title-panel button:hover,
+#private-room button:hover { background-image: var(--arena-hover); transform: none; filter: none; }
+#menu .title-stage .arena-button:active,
+#menu .title-panel button:active,
+#private-room button:active { background-image: var(--arena-selected); transform: translateY(1px); }
+#menu #title-roster button span,
+#menu.live-title #title-roster button span {
+  position: relative;
+  min-width: clamp(78px, 10vw, 164px);
+  border: 0;
+  border-radius: 0;
+  padding: .95em 1.15em .95em 2.45em;
+  background: url('assets/ui/arena/nameplate.webp') center / 100% 100% no-repeat;
+  color: var(--arena-paper);
+  font: bold clamp(.68rem, 1.2vw, 1.16rem)/1 Georgia, serif;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px #140b05;
+}
+#menu.live-title #title-roster button[aria-pressed=true] span,
+#menu.live-title #title-roster button:is(:hover,[aria-pressed=true]) span {
+  background: url('assets/ui/arena/nameplate.webp') center / 100% 100% no-repeat;
+  filter: brightness(1.16) drop-shadow(0 0 6px #ff9f38);
+  color: #fff7de;
+}
+#menu.live-title #title-roster button:hover span { filter: brightness(1.22); color: #fff7de; }
+#menu:not(.live-title) #title-roster button { background: none; border: 0; box-shadow: none; padding: 0; }
+#menu:not(.live-title) #title-roster button[aria-pressed=true] span { filter: brightness(1.16) drop-shadow(0 0 6px #ff9f38); }
+.roster-navigation { gap: 1rem; }
+.roster-navigation button {
+  width: clamp(32px, 4vw, 65px);
+  height: clamp(32px, 4.7vw, 70px);
+  border: 0;
+  padding: 0;
+  color: transparent;
+  background: transparent center / contain no-repeat;
+}
+.roster-navigation #roster-prev { background-image: url('assets/ui/arena/arrow-left.webp'); }
+.roster-navigation #roster-next { background-image: url('assets/ui/arena/arrow-right.webp'); }
+.roster-navigation button:hover { filter: brightness(1.25) drop-shadow(0 0 5px #ffad4a); }
+.title-panel, #private-room {
+  width: min(650px, 94vw);
+  padding: clamp(30px, 7vh, 76px) clamp(40px, 6vw, 86px);
+  border: 0;
+  border-radius: 0;
+  background: url('assets/ui/arena/settings.webp') center / 100% 100% no-repeat;
+  box-shadow: none;
+  color: var(--arena-paper);
+}
+#private-room {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  margin: 0;
+  width: min(570px, 94vw);
+  max-height: 92dvh;
+  padding-top: clamp(72px, 13vh, 132px);
+  background-image: url('assets/ui/arena/lobby.webp');
+}
+#private-room::backdrop { background: #0e0807b8; }
+#room-form { display: grid; gap: .4rem; }
+#room-form input {
+  min-width: 0;
+  padding: .55em .65em;
+  border: 1px solid #a47641;
+  background: #1d1510;
+  color: var(--arena-paper);
+  font: inherit;
+}
+.room-actions { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .55rem; }
+.room-actions button { flex: 1; padding: .65em .78em; font-size: .76rem; }
+#room-status { font-size: .82rem; color: #ffe0a2; overflow-wrap: anywhere; }
+#menu .title-panel-header { margin-bottom: .55rem; }
+#arena-settings { padding-top: clamp(88px, 12vh, 130px); }
+#menu:has(#arena-settings:not([hidden])) .title-stage { opacity: .36; pointer-events: none; }
+#menu:has(#arena-settings:not([hidden]))::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #120b08a8;
+}
+@media (max-height: 540px) { #arena-settings { padding-top: 60px; } }
+#menu .title-panel-header h2, #room-title { font-family: Georgia, serif; }
+#menu .title-panel-header button, #private-room .title-panel-header button { min-width: 36px; }
+@media (max-aspect-ratio: 29/20) {
+  #menu .title-copy, #menu.live-title .title-copy {
+    width: min(370px, 62vw);
+    min-height: 0;
+    margin: 2vh auto 0;
+    padding: 4vh clamp(24px, 6vw, 64px) 4vh;
+  }
+  #menu .title-copy h1 img { max-height: 13vh; object-fit: contain; }
+  #menu .title-actions { margin-top: .45rem; }
+  #menu .title-stage .arena-button { min-height: 34px; font-size: .86rem; }
+}
+@media (max-height: 540px) {
+  #menu .title-copy { padding-block: 8vh; min-height: 79vh; }
+  #menu .title-copy h1 img { max-height: 25vh; object-fit: contain; }
+  #menu .title-stage .arena-button { min-height: 33px; }
+  #menu .title-panel, #private-room { max-height: 95dvh; padding-bottom: 35px; }
+  #private-room { padding-top: 64px; }
+}
+
+#title-roster span::before {
+  content: '';
+  position: absolute;
+  left: 10%;
+  top: 50%;
+  width: 17%;
+  aspect-ratio: 1;
+  transform: translateY(-52%);
+  border-radius: 50%;
+  background: var(--hero-portrait, none) center / cover no-repeat;
+}

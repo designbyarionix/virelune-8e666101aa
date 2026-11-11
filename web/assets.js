@@ -26,13 +26,13 @@ export function localFiles(files){
   }
   const urls=new Map();
   return {
-    async bytes(path){const file=index.get(path.toLowerCase());if(!file)throw Error('Липсва '+path);return file.arrayBuffer();},
+    async bytes(path){const file=index.get(path.toLowerCase());if(!file)throw Error('Missing '+path);return file.arrayBuffer();},
     url(path){const key=path.toLowerCase();const file=index.get(key);if(!file)return null;
       if(!urls.has(key))urls.set(key,URL.createObjectURL(file));return urls.get(key);}
   };
 }
 export const installedFiles={
-  async bytes(path){const r=await fetch(this.url(path));if(!r.ok)throw Error('Липсва '+path);return r.arrayBuffer();},
+  async bytes(path){const r=await fetch(this.url(path));if(!r.ok)throw Error('Missing '+path);return r.arrayBuffer();},
   url(path){return 'assets/'+path.toLowerCase().split('/').map(encodeURIComponent).join('/');}
 };
 function rgbaTexture(d, pixels, palette, width, height, masked=false){
@@ -92,7 +92,7 @@ export async function loadMap(files,name){
   }
   const root='nnk_'+name;
   const d=view(await files.bytes('maps/'+root+'.bsp'));
-  if(int(d,0)!==30)throw Error('Невалиден GoldSrc BSP.');
+  if(int(d,0)!==30)throw Error('Invalid GoldSrc BSP.');
   const l=Array.from({length:15},(_,i)=>new DataView(d.buffer,int(d,4+i*8),int(d,8+i*8)));
   const tex=l[2],texInfo=l[6],faces=l[7],light=l[8],edges=l[12],surf=l[13],verts=l[3];
   const groups=new Map(),group=new T.Group(),wad=await wadTextures(files);
@@ -148,7 +148,7 @@ export async function loadMap(files,name){
   const spawns=es.filter(e=>/^info_player_(deathmatch|start)$/.test(e.classname)&&e.origin)
     .sort((a,b)=>Number(b.classname.endsWith('deathmatch'))-Number(a.classname.endsWith('deathmatch')))
     .map(e=>({position:point(...e.origin.split(/\s+/).map(Number)),angle:Number(e.angle??0),combat:e.classname.endsWith('deathmatch')}));
-  if(!spawns.length)throw Error('Картата няма начални позиции.');
+  if(!spawns.length)throw Error('The map has no spawn points.');
   const planes=l[1],clip=l[9],models=l[14],hull=int(models,40);
   const obstacles=es.filter(e=>/^(func_wall|func_door|func_breakable|func_train)$/.test(e.classname)&&e.model?.startsWith('*')).flatMap(e=>{
     const p=Number(e.model.slice(1))*64;
@@ -637,7 +637,7 @@ export async function loadCharacter(files,name){
 export async function loadWeaponModel(files,path){
   const model=await loadStudio(files,'models/weapons/'+path,false);
   const box=new T.Box3().setFromObject(model,true),size=box.getSize(new T.Vector3());
-  if(box.isEmpty()||size.lengthSq()===0)throw Error('Празен модел на оръжие '+path);
+  if(box.isEmpty()||size.lengthSq()===0)throw Error('Empty weapon model '+path);
   model.position.sub(box.getCenter(new T.Vector3()));
   const root=new T.Group();root.add(model);
   root.userData.weaponSize=Math.max(size.x,size.y,size.z);
@@ -654,7 +654,7 @@ export async function loadWeaponModel(files,path){
 export async function loadRasengan(files,file='rasengan.mdl'){
   const model=await loadStudio(files,'models/jutsus/'+file,true,null);
   const bounds=new T.Box3().setFromObject(model,true),size=bounds.getSize(new T.Vector3());
-  if(bounds.isEmpty()||size.lengthSq()===0)throw Error('Празен модел на Rasengan');
+  if(bounds.isEmpty()||size.lengthSq()===0)throw Error('Empty Rasengan model');
   model.position.sub(bounds.getCenter(new T.Vector3()));
   const root=new T.Group();root.add(model);
   root.scale.setScalar(2/Math.max(size.x,size.y,size.z));
@@ -681,7 +681,7 @@ export function loadKawarimiLog(files){
 }
 async function loadStudio(files,name,character,modelHeight=66){
   const d=view(await files.bytes(name));
-  if(str(d,0,4)!=='IDST'||int(d,4)!==10)throw Error('Неподдържан модел '+name);
+  if(str(d,0,4)!=='IDST'||int(d,4)!==10)throw Error('Unsupported model '+name);
   const bones=[], count=int(d,140), boneOffset=int(d,144), skelRoot=new T.Group();
   const animationGroup=int(d,int(d,176)+100);
   for(let i=0;i<count;i++){
@@ -776,7 +776,7 @@ async function loadStudio(files,name,character,modelHeight=66){
         for(let j=0;j<Math.abs(n);j++,p+=8)strip.push([ushort(d,p),ushort(d,p+2),short(d,p+4)/w,short(d,p+6)/h]);
         for(let j=2;j<strip.length;j++){
           const tri=n<0?[strip[0],strip[j-1],strip[j]]:j%2?[strip[j-1],strip[j-2],strip[j]]:[strip[j-2],strip[j-1],strip[j]];
-          for(const [v,n,u,t] of tri){if(!verts[v])throw Error('Невалиден връх');positions.push(...verts[v]);uv.push(u,t);smooth.push(...(normals[n]??[0,0,1]));indices.push(vertexBones[v],0,0,0);weights.push(1,0,0,0);}
+          for(const [v,n,u,t] of tri){if(!verts[v])throw Error('Invalid vertex');positions.push(...verts[v]);uv.push(u,t);smooth.push(...(normals[n]??[0,0,1]));indices.push(vertexBones[v],0,0,0);weights.push(1,0,0,0);}
         }
       }
       if(positions.length){
@@ -811,7 +811,7 @@ async function loadStudio(files,name,character,modelHeight=66){
     return props;
   }
   const box=new T.Box3().setFromObject(group,true);
-  if(box.isEmpty())throw Error('Празен модел '+name);
+  if(box.isEmpty())throw Error('Empty model '+name);
   const height=box.max.y-box.min.y;
   group.position.y=-box.min.y;
   const wrapper=new T.Group();wrapper.add(group);wrapper.scale.setScalar(modelHeight/height);
@@ -824,9 +824,9 @@ async function loadStudio(files,name,character,modelHeight=66){
 
 export async function loadSprite(files,path){
   const d=view(await files.bytes('sprites/'+path));
-  if(str(d,0,4)!=='IDSP'||int(d,4)!==2)throw Error('Невалиден GoldSrc SPR');
+  if(str(d,0,4)!=='IDSP'||int(d,4)!==2)throw Error('Invalid GoldSrc SPR');
   const format=int(d,12),colors=ushort(d,40),palette=42;
-  if(colors!==256)throw Error('Неподдържана SPR палитра');
+  if(colors!==256)throw Error('Unsupported SPR palette');
   let at=palette+colors*3;
   const frames=[];
   for(let i=0;i<int(d,28)&&i<48;i++){
@@ -866,11 +866,11 @@ async function decodeXpr(files,path,compact){
     const flags=ushort(d,at+6),method=ushort(d,at+8),length=d.getUint32(at+18,true);
     const size=d.getUint32(at+22,true),names=ushort(d,at+26),extra=ushort(d,at+28);
     const name=str(d,at+30,names),offset=at+30+names+extra;
-    if(flags&9||offset+length>d.byteLength||size>2e6||entries.length>=48)throw Error('Неподдържан XPR архив');
+    if(flags&9||offset+length>d.byteLength||size>2e6||entries.length>=48)throw Error('Unsupported XPR archive');
     if(/\.png$/i.test(name)&&(method===0||method===8))entries.push({name,method,size,offset,length});
     at=offset+length;
   }
-  if(!entries.length)throw Error('Липсват кадри в XPR');
+  if(!entries.length)throw Error('No frames in the XPR archive');
   entries.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
   const selected=compact&&entries.length>compact.frames?
     Array.from({length:compact.frames},(_,i)=>entries[Math.round(i*(entries.length-1)/(compact.frames-1))]):entries;
@@ -881,7 +881,7 @@ async function decodeXpr(files,path,compact){
     if(method===8){
       const stream=image.stream().pipeThrough(new DecompressionStream('deflate-raw'));
       const data=await new Response(stream).arrayBuffer();
-      if(data.byteLength!==size)throw Error('Повреден XPR кадър');
+      if(data.byteLength!==size)throw Error('Corrupt XPR frame');
       image=new Blob([data],{type:'image/png'});
     }
     const url=URL.createObjectURL(image);

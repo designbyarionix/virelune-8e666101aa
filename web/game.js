@@ -13,7 +13,7 @@ const heroes={
   sakura:{label:'Sakura',color:0xff8bb5,skills:{DSW:['Chakra Concentration',15,'boost'],WS:['Healing Jutsu',22,'heal'],SA:['Bunshin',20,'clone']}},
   anbu:{label:'ANBU',color:0xd1dbdd,skills:{ADS:['Katon',30,'fire'],DW:['Shunshin',25,'rush']}}
 };
-const names={academy:'Academy',monument:'Monument',chuninfinals:'Chunin Finals',chuninfinals_dusk:'Chunin Finals · Dusk',kyuubilair:'Kyuubi Lair',monument_night:'Monument · Night',preliminary:'Preliminary',voltage_courtyard:'Voltage · Двор',voltage_fortress:'Voltage · Крепост',voltage_village:'Voltage · Село Коноха',voltage_market:'Voltage · Пазарът на Коноха',storm_river:'Storm 2 · Речна арена',storm_forest:'Storm 2 · Горска арена',storm_sand:'Storm 2 · Пясъчна арена'};
+const names={academy:'Academy',monument:'Monument',chuninfinals:'Chunin Finals',chuninfinals_dusk:'Chunin Finals · Dusk',kyuubilair:'Kyuubi Lair',monument_night:'Monument · Night',preliminary:'Preliminary',voltage_courtyard:'Voltage · Courtyard',voltage_fortress:'Voltage · Fortress',voltage_village:'Voltage · Hidden Leaf Village',voltage_market:'Voltage · Hidden Leaf Market',storm_river:'Storm 2 · River Arena',storm_forest:'Storm 2 · Forest Arena',storm_sand:'Storm 2 · Sand Arena'};
 const weapons=[
   {id:'kunai',label:'Kunai',icon:'Icon_Kunai',ammo:12},
   {id:'shuriken',label:'Shuriken',icon:'Icon_Shuriken',ammo:18},
@@ -40,7 +40,7 @@ try{
   renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.03;
   if(renderer.shadowMap){renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFShadowMap;}
   $('game').append(renderer.domElement);
-}catch(e){$('status').textContent='WebGL 2 не е наличен в този браузър.';throw e;}
+}catch(e){$('status').textContent='WebGL 2 is unavailable in this browser.';throw e;}
 const scene=new T.Scene();
 const camera=new T.PerspectiveCamera(68,1,2,24000);
 const ambient=new T.HemisphereLight(0xf4f8ff,0xb2aa96,1.65);scene.add(ambient);
@@ -151,7 +151,9 @@ const visualScale=root=>world.traceSolid?(root.userData.nativeScale??1):1;
 function setActorScale(root){
   root.scale.setScalar(world.traceSolid?1:1/(root.userData.nativeScale??1));
 }
-const lanAccess=new URLSearchParams(location.search).has('lan');
+const matchParams=new URLSearchParams(location.search);
+let lanAccess=matchParams.has('lan');
+let roomCode=/^[a-z0-9-]{4,24}$/.test(matchParams.get('room')??'')?matchParams.get('room'):null;
 const music=$('music-volume'),effectsVolume=$('effects-volume'),backgroundAudio=[];
 let musicVolume=.55,sfxVolume=.8;
 try{
@@ -189,15 +191,18 @@ function playerName(){
 function sendArena(state){
   return fetch('arena',{method:'POST',headers:{'Content-Type':'application/json'},
     signal:AbortSignal.timeout(3000),body:JSON.stringify(state)}).then(response=>{
-    if(!response.ok)throw Error(response.status===404?'Използвай Start NNK LAN.cmd':
-      response.status===409?'Арената е пълна · 10 от 10':'HTTP '+response.status);
+    if(!response.ok)throw Error([404,405,501].includes(response.status)?'No compatible arena server is available at this address.':
+      response.status===409?'The arena is full · 10 of 10':'HTTP '+response.status);
     return response.json();
   });
 }
 if(lanAccess){
+  const hero=matchParams.get('hero');
+  if(Object.hasOwn(heroes,hero))$('character').value=hero;
+  $('player-name').value=globalThis.sessionStorage?.getItem('nnk-room-name')??'';
   $('menu').classList.add('lan-game');
-  $('title-subtitle').textContent='Chunin Finals · до 10 играчи';
-  $('play').firstChild.nodeValue='Старт ';
+  $('title-subtitle').textContent='Chunin Finals · up to 10 players';
+  $('play').firstChild.nodeValue='Start ';
   $('lobby-profile').hidden=false;
   $('lobby-profile').append($('character-field'));
 }
@@ -220,7 +225,7 @@ function showJutsuCutIn(name){
 }
 files=installedFiles;
 $('play').disabled=false;
-updateStatus('Избери герой и карта. Играта зарежда ресурсите от сайта.');
+updateStatus('Choose a character and a map.');
 function disposeTree(root){
   root.traverse(o=>{
     o.geometry?.dispose();
@@ -253,6 +258,8 @@ function updateRosterSelection(){
   for(const [index,button] of rosterButtons.entries()){
     const id=visibleHero(index);
     button.dataset.hero=id;
+    const portrait=files.url('sprites/vgui/'+id+'.png');
+    button.style.setProperty('--hero-portrait',portrait?'url("'+portrait+'")':'none');
     button.firstElementChild.textContent=heroes[id].label;
     button.setAttribute('aria-pressed',String(id===$('character').value));
   }
@@ -293,12 +300,12 @@ function closeTitlePreview(){
 async function startTitlePreview(){
   if(world||busy||titlePreviewLoading||titlePreview||document.hidden)return;
   titlePreviewLoading=true;
-  loadingProgress(10,'Зареждам Chunin Finals…');
+  loadingProgress(10,'Loading Chunin Finals…');
   let map;
   try{
     map=await loadMap(files,'chuninfinals');
     if(world||busy){disposeTree(map.group);return;}
-    loadingProgress(48,'Зареждам героите…');
+    loadingProgress(48,'Loading characters…');
     let completed=0;
     const models=await Promise.all(titleRoster.map(async id=>{
       const root=await model(id);
@@ -335,10 +342,10 @@ async function startTitlePreview(){
     titlePreview={stage,map,cast,slots,shadowGeometry,shadowMaterial,camera:new T.PerspectiveCamera(37,1,2,7000),point:new T.Vector3()};
     updateRosterSelection();
     $('menu').classList.add('live-title');
-    loadingProgress(100,'Избери герой и карта.');
+    loadingProgress(100,'Choose a character and a map.');
   }catch(error){
     if(map)disposeTree(map.group);
-    if(!busy&&!world)loadingProgress(100,'3D сцената не се зареди. Можеш да влезеш в арената.');
+    if(!busy&&!world)loadingProgress(100,'The 3D preview could not load. You can still enter the arena.');
     console.warn('NNK title preview',error.message);
   }finally{titlePreviewLoading=false;}
 }
@@ -391,7 +398,7 @@ function resume(){
   if(charged)releaseCharge();
   if(heavy)releaseHeavy();
   if(touch){$('touch-controls').hidden=false;return;}
-  if(!document.pointerLockElement)message('Кликни в арената за управление с мишката');
+  if(!document.pointerLockElement)message('Click the arena to capture the mouse');
   requestArenaPointerLock();
 }
 $('resume').onclick=resume;
@@ -438,7 +445,7 @@ document.addEventListener('keydown',e=>{
   if(e.code==='KeyF')toggleFocus();
   if(e.code==='KeyT')toggleTarget();
   if(e.code==='KeyC'){openMenu();$('character').focus();}
-  if(e.code==='KeyB'){spawn(player,player.spawn);message('Върнат на началната позиция');}
+  if(e.code==='KeyB'){spawn(player,player.spawn);message('Returned to the spawn point');}
   if(e.code==='KeyP')message(Object.entries(heroes[player.id].skills).map(([seal,skill])=>seal+' '+skill[0]).join(' · '));
   if(e.code==='ArrowUp'||e.code==='ArrowDown')cameraZoom=clamp(cameraZoom+(e.code==='ArrowUp'?-24:24),100,440);
   if(/^Digit[1-5]$/.test(e.code)){weaponIndex=Number(e.code.at(-1))-1;updateHUD();}
@@ -456,7 +463,7 @@ document.addEventListener('keydown',e=>{
     if(combo)sound('jutsu/Seal_'+combo.length+'.wav',.26);
     if(skills[combo]){
       prepare(skills[combo]);combo='';
-    }else message(combo?'Печати · '+combo:'Невалиден печат · P за комбинациите');
+    }else message(combo?'Hand seals · '+combo:'Invalid hand seal · press P for combos');
   }
 });
 document.addEventListener('keyup',e=>{
@@ -542,7 +549,7 @@ function endOrioke(){
   player.root=original;player.mixer=orioke.originalMixer;player.action=orioke.originalAction;player.pose=null;orioke=null;
 }
 function toggleFocus(){
-  focusMode=!focusMode;message(focusMode?'Фокус на чакра':'Фокусът е спрян');
+  focusMode=!focusMode;message(focusMode?'Chakra focus':'Chakra focus disabled');
   if(focusMode){player.focusStarted=now;sound('misc/Focus_Chakra.wav');}
 }
 function updateFocusEffect(){
@@ -573,7 +580,7 @@ function sound(path,volume=.37){
   audio.play().catch(()=>{});
 }
 function prepare(skill){
-  prepared=skill;sound('jutsu/Jutsu_Enabled.wav');message(touch?skill[0]:skill[0]+' · ляв бутон или Enter');
+  prepared=skill;sound('jutsu/Jutsu_Enabled.wav');message(touch?skill[0]:skill[0]+' · left click or Enter');
 }
 function refreshTouchTechniques(skills){
   const icons={
@@ -690,7 +697,7 @@ function updateHUD(){
   $('touch-weapon-label').textContent=weapon.label;
   $('target').hidden=!locked||!!locked.dead;
   if(locked&&!locked.dead)$('target').textContent=heroes[locked.id].label+' · '+Math.ceil(locked.hp)+' HP';
-  $('score').textContent=lan?'LAN · '+(lan.peers.size+1)+' играчи'+(lan.ping===undefined?'':' · '+lan.ping+' ms'):score+' победи · '+botList.length+' бота';
+  $('score').textContent=lan?'LAN · '+(lan.peers.size+1)+' players'+(lan.ping===undefined?'':' · '+lan.ping+' ms'):score+' wins · '+botList.length+' bots';
   const board=$('scoreboard');board.hidden=!keys.has('Tab')&&!showTouchScore;
   if(!board.hidden){
     const ordered=[player,...opponents()].sort((a,b)=>b.kills-a.kills);
@@ -704,7 +711,7 @@ function updateHUD(){
       row.hidden=!a;
       if(!a)continue;
       const prefix=mode==='teamplay'?(a.team===0?'[Konoha] ':'[Shinobi] '):'';
-      const label=prefix+(a.name??heroes[a.id].label)+(a===player?' · ти':a.remote?' · LAN':' · бот')+' — '+a.kills+' / '+a.deaths;
+      const label=prefix+(a.name??heroes[a.id].label)+(a===player?' · you':a.remote?' · LAN':' · Bot')+' — '+a.kills+' / '+a.deaths;
       if(row.textContent!==label)row.textContent=label;
     }
   }
@@ -725,14 +732,14 @@ async function addBots(n){
     const root=await model(id);
     const bot={id,root,pos:new T.Vector3(),dy:0,hp:100,next:now+2,dead:0,stun:0,team:(botList.length+1)%2,kills:0,deaths:0};
     bot.nameplate=document.createElement('span');bot.nameplate.className='bot-name';
-    bot.nameplate.textContent=heroes[id].label+' · Бот '+(botList.length+1);
+    bot.nameplate.textContent=heroes[id].label+' · Bot '+(botList.length+1);
     bot.nameplate.hidden=true;$('bot-names').append(bot.nameplate);
     actors.add(root);spawn(bot,botSpawn());botList.push(bot);refreshOpponents();
     if(id==='naruto')warmOwnerOrb(bot,'Rasengan',!busy);
   }
   updateHUD();
 }
-$('addbots').onclick=async()=>{try{await addBots(3);message('Добавени ботове');}catch(e){updateStatus(e.message);}};
+$('addbots').onclick=async()=>{try{await addBots(3);message('Bots added');}catch(e){updateStatus(e.message);}};
 const mobileRasenganTextures={
   rasenBase:{frames:8,size:256},
   rasenCharge:{frames:8,size:192},
@@ -791,8 +798,8 @@ async function loadJutsuEffects(id,withBots){
 $('play').onclick=async()=>{
   if(!files||busy)return;
   const nameTag=playerName();
-  if(lanAccess&&!nameTag){updateStatus('Въведи име и избери герой.');$('player-name').focus();return;}
-  busy=true;closeTitlePreview();$('play').disabled=true;loadingProgress(10,'Зареждам картата и моделите…');
+  if(lanAccess&&!nameTag){updateStatus('Enter your name and choose a character.');$('player-name').focus();return;}
+  busy=true;closeTitlePreview();$('play').disabled=true;loadingProgress(10,'Loading map and models…');
   try{
     const name=lanAccess?'chuninfinals':$('map').value,id=$('character').value;
     $('hero-portrait').src=files.url('sprites/vgui/'+id+'.png')??'';
@@ -800,7 +807,7 @@ $('play').onclick=async()=>{
     const [next,root,settings]=await Promise.all([loadMap(files,name),model(id),
       files.bytes('listenserver.cfg').then(b=>parseRules(new TextDecoder().decode(b))).catch(()=>defaults),
       loadJutsuEffects(id,mode!=='lan'&&Number($('bots').value)>0)]);
-    loadingProgress(42,'Подготвям ефектите…');
+    loadingProgress(42,'Preparing effects…');
     if(!baseSpritesLoaded){
       const assets={hit:'taijutsu/Melee_Hit1.spr',poof:'general/Poof.spr',chidori:'jutsus/Chidori_Ball.spr',
         rasenganHit:'jutsus/Rasengan_Hit.spr',chakraFocus:'jutsus/Chakra_Focus.spr',ripple:'fx/Ripples.spr',splash:'fx/Water_Splash.spr',
@@ -853,7 +860,7 @@ $('play').onclick=async()=>{
     }
     const sessionName=nameTag||heroes[id].label;
     const token=mode==='lan'?(lan?.token??Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('')):null;
-    const join=token?await sendArena({room:name,token,hero:id,name:sessionName,
+    const join=token?await sendArena({room:roomCode??name,token,hero:id,name:sessionName,
       position:next.spawns[0].position.toArray(),yaw:0,pose:'idle'}):null;
     const sky=name==='kyuubilair'?null:await loadSky(files,next.sky);
     clearRush();
@@ -904,7 +911,7 @@ $('play').onclick=async()=>{
       match.timer=setInterval(()=>pollLan(match),25);
     }
     refreshOpponents();
-    loadingProgress(75,'Подготвям участниците…');
+    loadingProgress(75,'Preparing fighters…');
     if(!lan)await addBots(Number($('bots').value));
     if(touch&&(player.id==='naruto'||botList.some(bot=>bot.id==='naruto'))){
       warmAllSprites();
@@ -915,7 +922,7 @@ $('play').onclick=async()=>{
     warmAllSprites();
     if(id==='naruto'){warmOwnerOrb(player,'Rasengan',false);prepareChargeHelper();}
     if(id==='sasuke'||id==='kakashi'||id==='anbu')warmOwnerOrb(player,'Chidori',false);
-    loadingProgress(90,'Подготвям арената…');
+    loadingProgress(90,'Preparing arena…');
     await new Promise(resolve=>setTimeout(resolve,0));
     buildVisualPools();
     $('addbots').hidden=!!lan;
@@ -925,11 +932,22 @@ $('play').onclick=async()=>{
     cinematicUntil=0;pendingRasenshuriken=null;
     $('battle-intro').hidden=!battleStarts;
     $('battle-ready').hidden=false;$('battle-go').hidden=true;
-    refreshTech();updateHUD();updateStatus('Тренировъчен мач · F8 отваря менюто.');
+    refreshTech();updateHUD();updateStatus('Training match · press F8 to open the menu.');
     loadingProgress(100);busy=false;resume();
-  }catch(e){console.error(e);loadingProgress(100,e.message);busy=false;if(!world)startTitlePreview();}
+  }catch(e){console.error(e);loadingProgress(100,e.message);busy=false;if(!world)startTitlePreview();return e;}
   finally{$('play').disabled=false;}
 };
+export async function joinPrivateRoom(name,code){
+  if(busy||world)throw Error('Return to the title screen to join a private room.');
+  if(!name||!/^[a-z0-9-]{4,24}$/.test(code))throw Error('Enter a name and a valid room code.');
+  const previousAccess=lanAccess,previousCode=roomCode;
+  lanAccess=true;roomCode=code;
+  $('player-name').value=name;
+  const error=await $('play').onclick();
+  if(lan)return;
+  lanAccess=previousAccess;roomCode=previousCode;
+  throw error??Error('Unable to join the arena.');
+}
 function unlimited(){return mode!=='lan'&&$('free').checked;}
 function spendStamina(cost){
   if(unlimited())return true;
@@ -941,7 +959,7 @@ function dash(code){
   const side=code==='KeyA'||code==='KeyD';
   if(player.wall||player.backflip||(!side&&now<player.dashUntil))return false;
   const cost=side?rules.sv_dodge_stamina_drain/10:rules.sv_dash_stamina_drain;
-  if(!spendStamina(cost)){message('Недостатъчно издръжливост');return false;}
+  if(!spendStamina(cost)){message('Not enough stamina');return false;}
   const heading=new T.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
   if(side){
     const axis=new T.Vector3(-heading.z,0,heading.x);
@@ -1344,7 +1362,7 @@ function damage(bot,n,source=player,hits=1){
   }
   sound('taijutsu/Hit_1.wav',.26);
   bot.hp-=n;if(bot.hp>0)playPose(bot,bot.ground?'hit1':'air_hit1',.28);visual(bot.pos.clone().add(new T.Vector3(0,12,0)),0xff9b44,16,.32,'hit');
-  if(bot.hp<=0){playPose(bot,bot.ground?'die_simple':'die_fall');bot.dead=now+3.2;bot.deaths++;source.kills++;if(source===player){score++;message('Победен бот');}}
+  if(bot.hp<=0){playPose(bot,bot.ground?'die_simple':'die_fall');bot.dead=now+3.2;bot.deaths++;source.kills++;if(source===player){score++;message('Bot defeated');}}
 }
 function dropSubstitutionLog(actor){
   const log=visuals.acquire('log');
@@ -1384,7 +1402,7 @@ function showCombatFeedback(hits){
   const feedback=$('combat-feedback'),number=$('combo-number');
   const color=hits>=5?'red':hits>=3?'yellow':'normal';
   number.src='assets/sprites/hud/combo_hits/'+color+'_'+hits+'.png';
-  number.alt=hits+' удара';
+  number.alt=hits+' hits';
   feedback.hidden=false;
   feedbackUntil=now+1.25;
 }
@@ -1499,10 +1517,10 @@ function updateWeaponTrail(shot){
 }
 function quickFire(){
   if(now<battleStarts)return;
-  if(world.releaseSeal?.(player.pos)){message('Печатът се освобождава · 4 сек.');return;}
+  if(world.releaseSeal?.(player.pos)){message('Releasing the seal · 4 seconds');return;}
   if(now<attackUntil||charged||rush||heavy||pendingThrow||orioke)return;
   const weapon=weapons[weaponIndex];
-  if(!unlimited()&&!player.ammo[weaponIndex]){message('Няма '+weapon.label);return;}
+  if(!unlimited()&&!player.ammo[weaponIndex]){message('Out of '+weapon.label);return;}
   if(!unlimited())player.ammo[weaponIndex]--;
   const pose={kunai:'ref_shoot_kunai',shuriken:'ref_shoot_shuriken2',tagkunai:'ref_shoot_explodingtag',
     smoke:'ref_shoot_smokebomb',tag:'ref_stick_explodingtag'}[weapon.id];
@@ -1743,13 +1761,13 @@ function attack(secondary){
   if(now<battleStarts)return;
   if(charged||rush||heavy||pendingThrow||keys.has('KeyQ')||keys.has('MouseBlock'))return;
   if(now<attackUntil&&!prepared)return;
-  if(prepared?.[2]==='rush'&&secondary){message(prepared[0]+' · ляв бутон или Enter');return;}
+  if(prepared?.[2]==='rush'&&secondary){message(prepared[0]+' · left click or Enter');return;}
   if(secondary&&(now<secondaryUntil||!spendStamina(rules.sv_secondary_stamina_drain)))return;
   if(prepared){
     if(prepared[2]==='rush'){
       player.pose=null;
       charged={skill:prepared,start:now};sound(prepared[0]==='Rasengan'?'jutsu/Rasengan_Charge.wav':'jutsu/Chidori_Loop.wav');
-      message(prepared[0]+(touch?' · пусни иконката за атака':' · пусни бутона за атака'));
+      message(prepared[0]+(touch?' · release the attack icon':' · release the attack button'));
     }else{cast(prepared,0,secondary);attackUntil=now+.5;}
     return;
   }
@@ -1770,7 +1788,7 @@ function cast(skill,charge=0,secondary=false){
     clone:label==='Bunshin'?rules.sv_bunshin_chakra_consumption:rules.sv_kagebunshin_chakra_consumption,
     rush:Math.round(charge*1000*(label==='Rasengan'?rules.sv_rasengan_charge_chakra_consumption:rules.sv_chidori_charge_chakra_consumption))};
   const cost=costs[type];
-  if(!unlimited()&&player.chakra<cost){message('Недостатъчно чакра');return;}
+  if(!unlimited()&&player.chakra<cost){message('Not enough chakra');return;}
   if(!unlimited())player.chakra-=cost;
   prepared=null;message(label+'!');showJutsuCutIn(label);
   const pose={rasenshuriken:'ref_shoot_shuriken',fire:player.ground?'ref_gouk_shoot':'air_gouk_shoot',volley:'ref_hous_shoot',
@@ -1873,7 +1891,7 @@ function hurtPlayer(damage,source){
     player.deaths++;if(source&&!source.remote)source.kills++;
     spawn(player,player.spawn);player.chakra=maxChakra;player.stamina=100;heavy=null;
     player.ammo=weapons.map(w=>w.ammo);charged=null;prepared=null;healing=null;chain=0;locked=null;
-    message('Връщаш се в арената');
+    message('Returning to the arena');
   }
 }
 function visibleBetween(a,b,body=false){
@@ -2160,7 +2178,7 @@ function pollLan(match){
   if(lan!==match||busy||match.pending||sentAt<match.next)return;
   match.next=sentAt+(paused?500:50);match.pending=true;
   const hit=match.hit;match.hit=null;
-  sendArena({room:world.name,token:match.token,hero:player.id,name:match.name,
+  sendArena({room:roomCode??world.name,token:match.token,hero:player.id,name:match.name,
       position:player.pos.toArray(),yaw,rotation:player.root.quaternion.toArray(),
       offset:clamp(player.pos.y-player.root.position.y,-128,128),hp:clamp(player.hp,0,100),
       pose:player.action?.getClip().name??'idle',action:player.actionVersion??0,once:!!player.playingPose,hit}).then(packet=>{
@@ -2271,7 +2289,7 @@ function update(dt,measure=false){
     Math.hypot(player.pos.x-oldX,player.pos.z-oldZ)<motion.length()*.2){
     const probe=player.pos.clone().addScaledVector(motion.clone().normalize(),12);
     if(world.skyBoundary(probe)){
-      player.boundaryNoticeAt=now+3;message('Граница на картата');
+      player.boundaryNoticeAt=now+3;message('Map boundary');
     }
   }
   const surface=!world.shallowWater&&focusMode&&!player.wall&&player.stamina>0&&player.dy<=0?
@@ -2502,7 +2520,7 @@ function update(dt,measure=false){
   }
   if(now>=feedbackUntil)$('combat-feedback').hidden=true;
   if(now>noticeUntil)$('notice').textContent=world.canReleaseSeal?.(player.pos)?
-    (touch?'Оръжие':'E')+' · освободи печата':prepared&&!charged?prepared[0]+' · ляв бутон или Enter':'';
+    (touch?'Weapon':'E')+' · release the seal':prepared&&!charged?prepared[0]+' · left click or Enter':'';
   updateCamera(dt);
   updateBotNames();
   if(now>=(player.hudAt??0)){player.hudAt=now+1/20;updateHUD();}
@@ -2603,7 +2621,7 @@ function resetPerf(){
   perfRefresh=0;
   performance.clearMarks('cast-start');
   performance.clearMarks('cast-first-frame');
-  $('perf-copy').textContent='Копирай резултата';
+  $('perf-copy').textContent='Copy report';
   renderPerfReport();
 }
 if(perf){
@@ -2629,35 +2647,35 @@ if(perf){
   };
   $('perf-copy').onclick=async()=>{
     if(longTaskObserver)collectLongTasks(longTaskObserver.takeRecords());
-    try{await navigator.clipboard.writeText(renderPerfReport());$('perf-copy').textContent='Копирано';}
-    catch{$('perf-copy').textContent='Направи снимка';}
+    try{await navigator.clipboard.writeText(renderPerfReport());$('perf-copy').textContent='Copied';}
+    catch{$('perf-copy').textContent='Take a screenshot';}
   };
 }
 function rasenganPhase(){
-  if(chargeClone||allies.some(ally=>ally.kind==='clone'))return 'клонинг';
-  if(charged?.skill[0]==='Rasengan')return 'зареждане';
-  if(rush?.label==='Rasengan')return 'атака';
-  if(botList.some(bot=>bot.rasengan))return 'бот';
+  if(chargeClone||allies.some(ally=>ally.kind==='clone'))return 'clone';
+  if(charged?.skill[0]==='Rasengan')return 'charge';
+  if(rush?.label==='Rasengan')return 'attack';
+  if(botList.some(bot=>bot.rasengan))return 'bot';
   const hit=sprites.get('rasenganHit'),wave=sprites.get('rasenShockwave');
-  if(effects.some(effect=>effect.sprite&&(effect.sprite===hit||effect.sprite===wave)))return 'ефект';
+  if(effects.some(effect=>effect.sprite&&(effect.sprite===hit||effect.sprite===wave)))return 'effect';
   return '';
 }
 function recordPerf(elapsed,frame){
   const group=Math.min(frame.cast,3);
-  const phase=frame.phase||'Движение';
+  const phase=frame.phase||'Movement';
   const key=group+':'+phase;
   if(!perfSamples.has(key))perfSamples.set(key,{group,phase,frames:[],index:0});
   const samples=perfSamples.get(key);
   samples.frames[samples.index++%1200]={...frame,elapsed};
 }
 function renderPerfReport(){
-  const mode=perfParams.has('scale')?'фиксиран '+(fixedScale||renderScale).toFixed(2)+'×':'адаптивен';
-  const lines=[mode+' · '+(world?.name??'—')+' · '+botList.length+' бота · '+renderScale.toFixed(2)+'× '+quality.value,
-    'Текущ каст '+castIndex+' · sprites загрети '+warmedSpriteCount+' · '+(perfGpuTimer?'има GPU таймер':'няма GPU таймер')];
+  const mode=perfParams.has('scale')?'fixed '+(fixedScale||renderScale).toFixed(2)+'×':'adaptive';
+  const lines=[mode+' · '+(world?.name??'—')+' · '+botList.length+' bots · '+renderScale.toFixed(2)+'× '+quality.value,
+    'Current cast '+castIndex+' · sprites warmed '+warmedSpriteCount+' · '+(perfGpuTimer?'GPU timer available':'GPU timer unavailable')];
   const signed=value=>(value>=0?'+':'')+value;
   for(const entry of perfCasts){
-    lines.push('Каст '+entry.index+' · textures '+signed(entry.delta.textures)+' · programs '+signed(entry.delta.programs)+' · initTexture '+entry.initTextures+
-      (entry.firstFrame===undefined?'':' · първи кадър '+entry.firstFrame.toFixed(1)+' ms'));
+    lines.push('Cast '+entry.index+' · textures '+signed(entry.delta.textures)+' · programs '+signed(entry.delta.programs)+' · initTexture '+entry.initTextures+
+      (entry.firstFrame===undefined?'':' · first frame '+entry.firstFrame.toFixed(1)+' ms'));
     lines.push(Object.entries(entry.counts).map(([name,count])=>name+' '+count).join(' · '));
   }
   const percentile=(values,q)=>values.sort((a,b)=>a-b)[Math.floor((values.length-1)*q)].toFixed(1);
@@ -2665,13 +2683,13 @@ function renderPerfReport(){
     const p=(key,q=.95)=>percentile(frames.map(frame=>frame[key]),q);
     const max=key=>Math.max(...frames.map(frame=>frame[key]));
     const slow=frames.filter(frame=>frame.elapsed>50).length;
-    const label=group===0?'Преди каст':group===3?'Каст 3+':'Каст '+group;
-    lines.push(label+' · '+phase+' ('+frames.length+')'+(frames.length<40?' (малко)':'')+
+    const label=group===0?'Before cast':group===3?'Cast 3+':'Cast '+group;
+    lines.push(label+' · '+phase+' ('+frames.length+')'+(frames.length<40?' (low sample count)':'')+
       ' · p50 '+p('elapsed',.5)+' / p95 '+p('elapsed')+' ms · '+slow+'/'+frames.length+' >50 ms');
     lines.push('CPU '+p('updateMs')+' ms · technique '+p('techniqueMs')+' ms · render CPU '+p('renderMs')+' ms · '+max('draws')+' draws · triangles '+max('triangles'));
   }
   lines.push(...longTasks);
-  if(!longTaskObserver)lines.push('longtask · браузърът не поддържа измерването');
+  if(!longTaskObserver)lines.push('longtask · browser does not support this measurement');
   const report=lines.join('\n');
   $('perf-text').textContent=report;
   return report;

@@ -76,7 +76,7 @@ export async function loadStormMap(name){
   const [model,rows]=await Promise.all([
     loader.loadAsync('storm/'+key+'.glb'),
     fetch('storm/'+key+'-collision.json').then(r=>{
-      if(!r.ok)throw Error('Липсва колизията на Storm 2.');
+      if(!r.ok)throw Error('Storm 2 collision data is missing.');
       return r.json();
     })
   ]);
@@ -232,7 +232,7 @@ export async function loadStormMap(name){
     const scores=new Map(spawns.map(spawn=>[spawn,space(spawn)]));
     spawns.sort((a,b)=>scores.get(b)-scores.get(a));
   }
-  if(spawns.length<2)throw Error('Липсват свободни начални позиции на Storm 2.');
+  if(spawns.length<2)throw Error('No open spawn points in this Storm 2 arena.');
   return {group,spawns,solid,pointSolid,floorY,noClimb:()=>false,
     water,waterline,waterMeshes,waterSurface,
     teleports:[],hazards:[],roofDistance,sky:'nnk_konoha',

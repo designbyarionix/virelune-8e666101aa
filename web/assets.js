@@ -33,7 +33,14 @@ export function localFiles(files){
 }
 export const installedFiles={
   async bytes(path){const r=await fetch(this.url(path));if(!r.ok)throw Error('Липсва '+path);return r.arrayBuffer();},
-  url(path){return 'assets/'+path.toLowerCase().split('/').map(encodeURIComponent).join('/');}
+  // The web build ships assets/sound as AAC instead of the original PCM wav: 23 MB
+  // became 2.9 MB. Game code keeps asking for the .wav names it reads out of the
+  // map entities and the hero tables. localFiles(), which reads the player's own
+  // NNK folder for the LAN build, is untouched and still serves the real .wav.
+  url(path){
+    const name=/^sound\/.+\.wav$/i.test(path)?path.slice(0,-4)+'.m4a':path;
+    return 'assets/'+name.toLowerCase().split('/').map(encodeURIComponent).join('/');
+  }
 };
 function rgbaTexture(d, pixels, palette, width, height, masked=false){
   if(width<1||height<1||width*height>4e6||pixels+width*height>d.byteLength||palette+768>d.byteLength)return null;

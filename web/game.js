@@ -608,8 +608,10 @@ function warmSoundPaths(){
     'weapons/Exploding_Tag.wav','weapons/Smokebomb_Throw.wav','weapons/Smokebomb_Setoff.wav'];
   // Footsteps fire every .31s and seals on every combo key, so they matter most.
   for(let i=1;i<=4;i++)paths.push('movement/Footstep'+i+'.wav','movement/Footstep_Water'+i+'.wav');
-  for(let i=1;i<=5;i++)paths.push('jutsu/Seal_'+i+'.wav');
-  for(const id of new Set([player?.id,...botList.map(bot=>bot.id)]))if(id)paths.push('player/'+id+'/Kagebunshin.wav');
+  for(let i=1;i<=3;i++)paths.push('jutsu/Seal_'+i+'.wav');
+  for(const id of new Set([player?.id,...botList.map(bot=>bot.id)])){
+    if(id&&Object.values(heroes[id].skills).some(skill=>skill[0]==='Kage Bunshin'))paths.push('player/'+id+'/Kagebunshin.wav');
+  }
   return paths;
 }
 // Three at a time: firing every request at once starves other loads of connections.

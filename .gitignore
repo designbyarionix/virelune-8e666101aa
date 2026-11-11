@@ -5,3 +5,6 @@ __pycache__/
 .env
 .env.*
 .vercel/
+
+# Reference material, not part of the build
+storm/*.apk
